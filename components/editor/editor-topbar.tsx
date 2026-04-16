@@ -1,36 +1,95 @@
-import { Moon, Share2, ChevronDown, ImageIcon, Zap } from "lucide-react";
+"use client";
+
+import { Plus, Play, Save, Sparkles } from "lucide-react";
+import { useEditorStore } from "@/store/editor-store";
 
 export function EditorTopbar() {
+    const template = useEditorStore((state) => state.template);
+    const isRunning = useEditorStore((state) => state.isRunning);
+    const workflowName = useEditorStore((state) => state.workflowName);
+    const isSaving = useEditorStore((state) => state.isSaving);
+
+    const setTemplate = useEditorStore((state) => state.setTemplate);
+    const setNodes = useEditorStore((state) => state.setNodes);
+    const setEdges = useEditorStore((state) => state.setEdges);
+    const clearRuns = useEditorStore((state) => state.clearRuns);
+    const clearSavedWorkflow = useEditorStore((state) => state.clearSavedWorkflow);
+    const setWorkflowId = useEditorStore((state) => state.setWorkflowId);
+    const setWorkflowName = useEditorStore((state) => state.setWorkflowName);
+    const saveWorkflow = useEditorStore((state) => state.saveWorkflow);
+
+    const handleNewWorkflow = () => {
+        clearSavedWorkflow();
+        clearRuns();
+        setNodes([]);
+        setEdges([]);
+        setWorkflowId(null);
+        setWorkflowName("Untitled Workflow");
+        setTemplate("templates");
+    };
+
     return (
-        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3.5">
-            {/* Left: Logo + title */}
-            <div className="flex items-center gap-1.5 rounded-[13px] border border-white/10 bg-white/7 px-2.5 py-1.5 backdrop-blur-md">
-                <div className="flex h-7 w-7 items-center justify-center rounded-[7px] bg-white/10">
-                    <Zap className="h-3.5 w-3.5 text-white" />
+        <div className="absolute left-0 right-0 top-0 z-20 flex h-16 items-center justify-between border-b border-white/10 bg-black/40 px-6 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+                <input
+                    value={workflowName}
+                    onChange={(e) => setWorkflowName(e.target.value)}
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-medium text-white outline-none placeholder:text-white/35"
+                    placeholder="Untitled Workflow"
+                />
+
+                <div className="hidden text-sm text-white/45 md:block">
+                    {template === "templates"
+                        ? "Choose a workflow template"
+                        : template === "image-generator"
+                            ? "Image Generator"
+                            : "Empty Workflow"}
                 </div>
-                <ChevronDown className="h-3.5 w-3.5 text-white/40" />
-                <span className="text-[13.5px] font-medium text-white/90">Untitled</span>
             </div>
 
-            {/* Right: Actions */}
-            <div className="flex items-center gap-1.5">
-                <button className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-white/10 bg-white/7 text-white/65 backdrop-blur-md transition hover:bg-white/11 hover:text-white">
-                    <Moon className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2">
+                <button
+                    onClick={handleNewWorkflow}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white"
+                >
+                    <Plus className="h-4 w-4" />
+                    New Workflow
                 </button>
-                <button className="flex items-center gap-1.5 rounded-[9px] border border-white/10 bg-white/7 px-3 py-1.5 text-[12.5px] text-white/65 backdrop-blur-md transition hover:bg-white/11 hover:text-white">
-                    <Share2 className="h-3.5 w-3.5" />
-                    Share
+
+                <button
+                    onClick={() => {
+                        setNodes([]);
+                        setEdges([]);
+                        setWorkflowId(null);
+                        setTemplate("templates");
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white"
+                >
+                    <Sparkles className="h-4 w-4" />
+                    Templates
                 </button>
-                <button className="flex items-center gap-1.5 rounded-[9px] border border-white/10 bg-white/10 px-3 py-1.5 text-[12.5px] font-medium text-white backdrop-blur-md transition hover:bg-white/15">
-                    <Zap className="h-3.5 w-3.5" />
-                    Turn workflow into app
+
+                <button
+                    onClick={saveWorkflow}
+                    disabled={template === "templates" || isSaving}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${template === "templates" || isSaving
+                            ? "cursor-not-allowed border-white/10 bg-white/5 text-white/35"
+                            : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white"
+                        }`}
+                >
+                    <Save className="h-4 w-4" />
+                    {isSaving ? "Saving..." : "Save"}
                 </button>
-                <button className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-white/10 bg-white/7 text-white/65 backdrop-blur-md transition hover:bg-white/11 hover:text-white">
-                    <ImageIcon className="h-3.5 w-3.5" />
-                </button>
-                <button className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-white/10 bg-white/7 text-white/65 backdrop-blur-md transition hover:bg-white/11 hover:text-white">
-                    <ChevronDown className="h-3.5 w-3.5" />
-                </button>
+
+                <div
+                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${isRunning
+                            ? "bg-blue-500/15 text-blue-300"
+                            : "bg-white/5 text-white/45"
+                        }`}
+                >
+                    <Play className="h-4 w-4" />
+                    {isRunning ? "Running" : "Idle"}
+                </div>
             </div>
         </div>
     );

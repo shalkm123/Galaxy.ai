@@ -1,21 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import { EditorBottombar } from "@/components/editor/editor-bottom-toolbar";
 import { WorkflowCanvas } from "@/components/editor/workflow-canvas";
 import { EditorShell } from "@/components/editor/editor-shell";
 import { EditorTemplates } from "@/components/editor/editor-templates";
 import { EditorTopbar } from "@/components/editor/editor-topbar";
-
-type EditorView = "templates" | "empty" | "image-generator";
+import { RunWorkflowButton } from "@/components/editor/nodes/run-workflow-button";
+import { useEditorStore } from "@/store/editor-store";
 
 export default function EditorPage() {
-    const [view, setView] = useState<EditorView>("templates");
+    const template = useEditorStore((state) => state.template);
+    const nodes = useEditorStore((state) => state.nodes);
+    const edges = useEditorStore((state) => state.edges);
+    const hasHydrated = useEditorStore((state) => state.hasHydrated);
+
+    const setTemplate = useEditorStore((state) => state.setTemplate);
+    const loadFromLocalStorage = useEditorStore((state) => state.loadFromLocalStorage);
+    const saveToLocalStorage = useEditorStore((state) => state.saveToLocalStorage);
+    const setHasHydrated = useEditorStore((state) => state.setHasHydrated);
+
+    useEffect(() => {
+        if (hasHydrated) return;
+
+        const restored = loadFromLocalStorage();
+
+        if (!restored) {
+            setTemplate("templates");
+        }
+
+        setHasHydrated(true);
+    }, [hasHydrated, loadFromLocalStorage, setHasHydrated, setTemplate]);
+
+    useEffect(() => {
+        if (!hasHydrated) return;
+        if (template === "templates") return;
+
+        saveToLocalStorage();
+    }, [template, nodes, edges, hasHydrated, saveToLocalStorage]);
+
+    const showTemplates = hasHydrated && template === "templates";
+    const showCanvas = hasHydrated && template !== "templates";
 
     return (
         <EditorShell>
             <div
-                className="relative h-full w-full overflow-hidden"
+                className="flex h-full w-full overflow-hidden"
                 style={{
                     backgroundColor: "#050505",
                     backgroundImage:
@@ -23,25 +53,34 @@ export default function EditorPage() {
                     backgroundSize: "26px 26px",
                 }}
             >
-                <EditorTopbar />
+                <div className="relative flex-1 overflow-hidden">
+                    <EditorTopbar />
 
-                {view === "templates" && (
-                    <EditorTemplates
-                        onDismiss={() => setView("empty")}
-                        onSelectTemplate={(template) => {
-                            if (template === "empty") setView("empty");
-                            else if (template === "image-generator") setView("image-generator");
-                            else setView("empty");
-                        }}
-                    />
-                )}
+                    {showCanvas ? (
+                        <>
+                            <div className="absolute right-6 top-20 z-20">
+                                <RunWorkflowButton />
+                            </div>
 
-                {view === "empty" && <WorkflowCanvas template="empty" />}
-                {view === "image-generator" && (
-                    <WorkflowCanvas template="image-generator" />
-                )}
+                            <WorkflowCanvas />
+                            <EditorBottombar />
+                        </>
+                    ) : null}
 
-                <EditorBottombar />
+                    {showTemplates ? (
+                        <EditorTemplates
+                            onDismiss={() => setTemplate("empty")}
+                            onSelectTemplate={(nextTemplate) => {
+                                if (nextTemplate === "image-generator") {
+                                    setTemplate("image-generator");
+                                    return;
+                                }
+
+                                setTemplate("empty");
+                            }}
+                        />
+                    ) : null}
+                </div>
             </div>
         </EditorShell>
     );

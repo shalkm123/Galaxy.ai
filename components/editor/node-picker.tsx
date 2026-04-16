@@ -3,20 +3,60 @@
 type NodePickerProps = {
     x: number;
     y: number;
-    onSelect: (type: "promptNode" | "imageGeneratorNode") => void;
+    onSelect: (
+        type:
+            | "promptNode"
+            | "imageGeneratorNode"
+            | "textNode"
+            | "uploadImageNode"
+            | "uploadVideoNode"
+            | "llmNode"
+            | "cropImageNode"
+            | "extractFrameNode"
+    ) => void;
     onClose: () => void;
 };
 
 const nodeOptions = [
     {
-        type: "promptNode" as const,
-        title: "Prompt Node",
-        subtitle: "Text prompt input node",
+        type: "textNode" as const,
+        title: "Text Node",
+        subtitle: "Simple text node",
+    },
+    {
+        type: "uploadImageNode" as const,
+        title: "Upload Image Node",
+        subtitle: "Upload and preview image",
+    },
+    {
+        type: "uploadVideoNode" as const,
+        title: "Upload Video Node",
+        subtitle: "Upload and preview video",
+    },
+    {
+        type: "llmNode" as const,
+        title: "Run Any LLM Node",
+        subtitle: "System prompt + user message + images",
+    },
+    {
+        type: "cropImageNode" as const,
+        title: "Crop Image Node",
+        subtitle: "Crop image with x/y/width/height %",
+    },
+    {
+        type: "extractFrameNode" as const,
+        title: "Extract Frame Node",
+        subtitle: "Extract single frame from video",
     },
     {
         type: "imageGeneratorNode" as const,
         title: "Image Generator Node",
         subtitle: "Generate image output",
+    },
+    {
+        type: "promptNode" as const,
+        title: "Prompt Node",
+        subtitle: "Prompt input node",
     },
 ];
 
@@ -28,7 +68,7 @@ export function NodePicker({
 }: NodePickerProps) {
     return (
         <div
-            className="absolute z-30 w-[260px] rounded-2xl border border-white/10 bg-[#111] p-3 shadow-2xl"
+            className="absolute z-30 w-[300px] rounded-2xl border border-white/10 bg-[#111] p-3 shadow-2xl"
             style={{ left: x, top: y }}
         >
             <div className="mb-2 flex items-center justify-between">
