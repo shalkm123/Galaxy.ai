@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import "./globals.css";
+import { ClerkProvider } from "@clerk/nextjs";
 import "@xyflow/react/dist/style.css";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Krea Workflow Builder",
-  description: "Workflow builder UI",
+  title: "Galaxy AI",
+  description: "Krea-style workflow builder",
 };
 
 export default function RootLayout({
@@ -13,8 +14,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body>{children}</body>
+      </html>
+    </ClerkProvider>
   );
 }

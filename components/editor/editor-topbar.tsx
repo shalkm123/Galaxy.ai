@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus, Play, Save, Sparkles } from "lucide-react";
+import { UserButton } from "@clerk/nextjs";
 import { useEditorStore } from "@/store/editor-store";
 
 export function EditorTopbar() {
@@ -42,8 +43,8 @@ export function EditorTopbar() {
                     {template === "templates"
                         ? "Choose a workflow template"
                         : template === "image-generator"
-                            ? "Image Generator"
-                            : "Empty Workflow"}
+                        ? "Image Generator"
+                        : "Empty Workflow"}
                 </div>
             </div>
 
@@ -72,23 +73,36 @@ export function EditorTopbar() {
                 <button
                     onClick={saveWorkflow}
                     disabled={template === "templates" || isSaving}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${template === "templates" || isSaving
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                        template === "templates" || isSaving
                             ? "cursor-not-allowed border-white/10 bg-white/5 text-white/35"
                             : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white"
-                        }`}
+                    }`}
                 >
                     <Save className="h-4 w-4" />
                     {isSaving ? "Saving..." : "Save"}
                 </button>
 
                 <div
-                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${isRunning
+                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${
+                        isRunning
                             ? "bg-blue-500/15 text-blue-300"
                             : "bg-white/5 text-white/45"
-                        }`}
+                    }`}
                 >
                     <Play className="h-4 w-4" />
                     {isRunning ? "Running" : "Idle"}
+                </div>
+
+                <div className="ml-2 flex items-center">
+                    <UserButton
+                        afterSignOutUrl="/login"
+                        appearance={{
+                            elements: {
+                                avatarBox: "h-9 w-9",
+                            },
+                        }}
+                    />
                 </div>
             </div>
         </div>

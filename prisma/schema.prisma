@@ -1,13 +1,59 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../lib/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model Workflow {
+  id        String        @id @default(cuid())
+  userId    String?
+  name      String
+  template  String
+  nodesJson Json
+  edgesJson Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  runs      WorkflowRun[]
+
+  @@index([userId])
+}
+
+model WorkflowRun {
+  id          String    @id @default(cuid())
+  workflowId  String
+  userId      String?
+  status      String
+  scope       String
+  durationMs  Int
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  workflow    Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  nodeRuns    NodeRun[]
+
+  @@index([workflowId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model NodeRun {
+  id            String       @id @default(cuid())
+  workflowRunId String
+  nodeId        String
+  nodeLabel     String
+  nodeType      String
+  status        String
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  durationMs    Int?
+  output        String?
+  error         String?
+
+  workflowRun   WorkflowRun  @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@index([workflowRunId])
+  @@index([nodeId])
 }

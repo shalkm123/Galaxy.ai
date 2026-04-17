@@ -11,7 +11,7 @@ export function CropImageNode({ data }: NodeProps<CropImageFlowNode>) {
                 data.runStatus
             )}`}
         >
-            <div className="flex items-center justify-between px-4 pt-3 text-[12px] text-white/55">
+            <div className="node-drag-handle flex cursor-grab items-center justify-between px-4 pt-3 text-[12px] text-white/55 active:cursor-grabbing">
                 <span>{data.label || "Crop Image"}</span>
                 <span>{data.runStatus === "running" ? "Running..." : "Image"}</span>
             </div>
@@ -22,15 +22,43 @@ export function CropImageNode({ data }: NodeProps<CropImageFlowNode>) {
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
-                    <Field label="x %" value={data.xPercent || "0"} onChange={(value) => data.onFieldChange?.("xPercent", value)} />
-                    <Field label="y %" value={data.yPercent || "0"} onChange={(value) => data.onFieldChange?.("yPercent", value)} />
-                    <Field label="width %" value={data.widthPercent || "100"} onChange={(value) => data.onFieldChange?.("widthPercent", value)} />
-                    <Field label="height %" value={data.heightPercent || "100"} onChange={(value) => data.onFieldChange?.("heightPercent", value)} />
+                    <Field
+                        label="x %"
+                        value={data.xPercent || "0"}
+                        onChange={(value) => data.onFieldChange?.("xPercent", value)}
+                    />
+                    <Field
+                        label="y %"
+                        value={data.yPercent || "0"}
+                        onChange={(value) => data.onFieldChange?.("yPercent", value)}
+                    />
+                    <Field
+                        label="width %"
+                        value={data.widthPercent || "100"}
+                        onChange={(value) => data.onFieldChange?.("widthPercent", value)}
+                    />
+                    <Field
+                        label="height %"
+                        value={data.heightPercent || "100"}
+                        onChange={(value) => data.onFieldChange?.("heightPercent", value)}
+                    />
                 </div>
             </div>
 
-            <Handle id="image_url" type="target" position={Position.Left} className="!h-3.5 !w-3.5 !border-0 !bg-[#1e7bff]" style={{ top: 70 }} />
-            <Handle id="output" type="source" position={Position.Right} className="!h-3.5 !w-3.5 !border-0 !bg-[#60a5fa]" style={{ top: 70 }} />
+            <Handle
+                id="image_url"
+                type="target"
+                position={Position.Left}
+                className="!h-3.5 !w-3.5 !border-0 !bg-[#1e7bff]"
+                style={{ top: 70 }}
+            />
+            <Handle
+                id="image-output"
+                type="source"
+                position={Position.Right}
+                className="!h-3.5 !w-3.5 !border-0 !bg-[#60a5fa]"
+                style={{ top: 70 }}
+            />
         </div>
     );
 }
@@ -50,7 +78,7 @@ function Field({
             <input
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
-                className="w-full rounded-[10px] bg-[#14181f] px-3 py-2 text-sm text-white outline-none"
+                className="nodrag nopan w-full rounded-[10px] bg-[#14181f] px-3 py-2 text-sm text-white outline-none"
             />
         </div>
     );

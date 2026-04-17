@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useState } from "react";
+import { UserButton } from "@clerk/nextjs";
 import { DashboardSidebar } from "./dashboard-sidebar";
 
 type DashboardShellProps = {
@@ -17,7 +18,21 @@ export function DashboardShell({ children }: DashboardShellProps) {
                 onToggle={() => setCollapsed((prev) => !prev)}
                 activeItem="Home"
             />
-            <div className="flex-1">{children}</div>
+
+            <div className="relative flex-1">
+                <div className="absolute right-5 top-5 z-20">
+                    <UserButton
+                        afterSignOutUrl="/login"
+                        appearance={{
+                            elements: {
+                                avatarBox: "h-9 w-9",
+                            },
+                        }}
+                    />
+                </div>
+
+                {children}
+            </div>
         </div>
     );
 }

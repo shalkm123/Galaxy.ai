@@ -24,23 +24,22 @@ import { LlmNode } from "@/components/editor/nodes/llm-node";
 import { CropImageNode } from "@/components/editor/nodes/crop-image-node";
 import { ExtractFrameNode } from "@/components/editor/nodes/extract-frame-node";
 import { NodePicker } from "@/components/editor/node-picker";
+
 import {
     getEmptyWorkflow,
     getImageGeneratorWorkflow,
 } from "@/lib/workflow-templates";
 import { isConnectionAllowed } from "@/lib/connection-rules";
 import { wouldCreateCycle } from "@/lib/graph-helpers";
+
 import { useEditorStore } from "@/store/editor-store";
+
 import type {
     AppFlowNode,
     CropImageFlowNode,
     ExtractFrameFlowNode,
     ImageGeneratorFlowNode,
     LlmFlowNode,
-    PromptFlowNode,
-    TextFlowNode,
-    UploadImageFlowNode,
-    UploadVideoFlowNode,
     WorkflowEdge,
 } from "@/types/workflow";
 
@@ -72,6 +71,13 @@ type AddableNodeType =
     | "cropImageNode"
     | "extractFrameNode";
 
+function withDragHandle(nodes: AppFlowNode[]): AppFlowNode[] {
+    return nodes.map((node) => ({
+        ...node,
+        dragHandle: ".node-drag-handle",
+    }));
+}
+
 export function WorkflowCanvas() {
     const template = useEditorStore((state) => state.template);
     const nodes = useEditorStore((state) => state.nodes);
@@ -82,10 +88,16 @@ export function WorkflowCanvas() {
     const updateNodeData = useEditorStore((state) => state.updateNodeData);
 
     const [picker, setPicker] = useState<PickerState>(null);
-    const reactFlowRef = useRef<ReactFlowInstance<AppFlowNode, WorkflowEdge> | null>(null);
+
+    const reactFlowRef =
+        useRef<ReactFlowInstance<AppFlowNode, WorkflowEdge> | null>(null);
+    const canvasRef = useRef<HTMLDivElement | null>(null);
+
+    const initializedTemplateRef = useRef<string | null>(null);
+
     const attachNodeActions = useCallback(
         (rawNodes: AppFlowNode[]): AppFlowNode[] => {
-            return rawNodes.map((node): AppFlowNode => {
+            const nodesWithActions = rawNodes.map((node): AppFlowNode => {
                 if (node.type === "promptNode") {
                     return {
                         ...node,
@@ -98,7 +110,7 @@ export function WorkflowCanvas() {
                                 }));
                             },
                         },
-                    } as AppFlowNode;
+                    };
                 }
 
                 if (node.type === "textNode") {
@@ -113,62 +125,88 @@ export function WorkflowCanvas() {
                                 }));
                             },
                         },
-                    } as AppFlowNode;
+                    };
                 }
 
                 if (node.type === "uploadImageNode") {
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            onUpload: (file: File) => {
-                                const url = URL.createObjectURL(file);
-                                updateNodeData(node.id, (data) => ({
-                                    ...data,
-                                    imageUrl: url,
-                                }));
-                            },
-                        },
-                    } as AppFlowNode;
+    return {
+        ...node,
+        data: {
+            ...node.data,
+            onUpload: async (file: File) => {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const response = await fetch("/api/uploads", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    throw new Error("Image upload failed");
                 }
 
-                if (node.type === "uploadVideoNode") {
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            onUpload: (file: File) => {
-                                const url = URL.createObjectURL(file);
-                                updateNodeData(node.id, (data) => ({
-                                    ...data,
-                                    videoUrl: url,
-                                }));
-                            },
-                        },
-                    } as AppFlowNode;
+                const result = await response.json();
+
+               updateNodeData(node.id, (data) => ({
+    ...data,
+    imageUrl: result.url,
+}));
+            },
+        },
+    };
+}
+
+if (node.type === "uploadVideoNode") {
+    return {
+        ...node,
+        data: {
+            ...node.data,
+            onUpload: async (file: File) => {
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const response = await fetch("/api/uploads", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    throw new Error("Video upload failed");
                 }
 
-                if (node.type === "llmNode") {
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            onSystemPromptChange: (value: string) => {
-                                updateNodeData(node.id, (data) => ({
-                                    ...data,
-                                    systemPrompt: value,
-                                }));
-                            },
-                            onUserMessageChange: (value: string) => {
-                                updateNodeData(node.id, (data) => ({
-                                    ...data,
-                                    userMessage: value,
-                                    output: `Mock output for: ${value}`,
-                                }));
-                            },
-                        },
-                    } as AppFlowNode;
-                }
+                const result = await response.json();
+
+                updateNodeData(node.id, (data) => ({
+                    ...data,
+                    videoUrl: result.url,
+                }));
+            },
+        },
+    };
+}
+
+if (node.type === "llmNode") {
+    return {
+        ...node,
+        data: {
+            ...node.data,
+            onSystemPromptChange: (value: string) => {
+                updateNodeData(node.id, (data) => ({
+                    ...data,
+                    systemPrompt: value,
+                }));
+            },
+            onUserMessageChange: (value: string) => {
+                updateNodeData(node.id, (data) => ({
+                    ...data,
+                    userMessage: value,
+                    output: `Mock output for: ${value}`,
+                }));
+            },
+        },
+    };
+}
 
                 if (node.type === "cropImageNode") {
                     return {
@@ -182,7 +220,7 @@ export function WorkflowCanvas() {
                                 }));
                             },
                         },
-                    } as AppFlowNode;
+                    };
                 }
 
                 if (node.type === "extractFrameNode") {
@@ -198,25 +236,34 @@ export function WorkflowCanvas() {
                                 }));
                             },
                         },
-                    } as AppFlowNode;
+                    };
                 }
 
-                return node as AppFlowNode;
+                return node;
             });
+
+            return withDragHandle(nodesWithActions);
         },
         [updateNodeData]
     );
 
     useEffect(() => {
-        if (template === "templates") return;
+        if (template === "templates") {
+            initializedTemplateRef.current = null;
+            return;
+        }
+
+        if (nodes.length > 0 || edges.length > 0) return;
+        if (initializedTemplateRef.current === template) return;
 
         const next =
             template === "image-generator"
                 ? getImageGeneratorWorkflow()
                 : getEmptyWorkflow();
 
+        initializedTemplateRef.current = template;
         resetWorkflow(attachNodeActions(next.nodes), next.edges);
-    }, [template, resetWorkflow, attachNodeActions]);
+    }, [template, nodes.length, edges.length, resetWorkflow, attachNodeActions]);
 
     const openPicker = useCallback((clientX: number, clientY: number) => {
         if (!reactFlowRef.current) return;
@@ -233,6 +280,24 @@ export function WorkflowCanvas() {
             flowY: flowPosition.y,
         });
     }, []);
+
+    const openPickerAtCanvasCenter = useCallback(() => {
+        const bounds = canvasRef.current?.getBoundingClientRect();
+        if (!bounds) return;
+
+        openPicker(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+    }, [openPicker]);
+
+    useEffect(() => {
+        const handleAddNodeEvent = () => {
+            openPickerAtCanvasCenter();
+        };
+
+        window.addEventListener("editor:add-node", handleAddNodeEvent);
+        return () => {
+            window.removeEventListener("editor:add-node", handleAddNodeEvent);
+        };
+    }, [openPickerAtCanvasCenter]);
 
     const getNodeById = useCallback(
         (id: string) => nodes.find((node) => node.id === id),
@@ -270,7 +335,6 @@ export function WorkflowCanvas() {
 
             if (!connection.source || !connection.target) return false;
             if (connection.source === connection.target) return false;
-
             if (!isConnectionAllowed(sourceHandle, targetHandle)) return false;
 
             const candidateEdge: WorkflowEdge = {
@@ -281,90 +345,94 @@ export function WorkflowCanvas() {
                 targetHandle: connection.targetHandle,
             };
 
-            if (wouldCreateCycle(nodes, edges, candidateEdge)) return false;
-
-            return true;
+            return !wouldCreateCycle(nodes, edges, candidateEdge);
         },
         [nodes, edges]
     );
 
     const derivedNodes = useMemo<AppFlowNode[]>(() => {
-        return attachNodeActions(
-            nodes.map((node) => {
-                if (node.type === "llmNode") {
-                    const systemPromptEdge = getIncomingEdge(node.id, "system_prompt");
-                    const userMessageEdge = getIncomingEdge(node.id, "user_message");
-                    const imagesEdge = getIncomingEdge(node.id, "images");
+        const mapped = nodes.map((node) => {
+            if (node.type === "llmNode") {
+                const systemPromptEdge = getIncomingEdge(node.id, "system_prompt");
+                const userMessageEdge = getIncomingEdge(node.id, "user_message");
+                const imagesEdge = getIncomingEdge(node.id, "images");
 
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            resolvedSystemPrompt: systemPromptEdge
-                                ? getTextFromSourceNode(systemPromptEdge.source)
-                                : node.data.systemPrompt,
-                            resolvedUserMessage: userMessageEdge
-                                ? getTextFromSourceNode(userMessageEdge.source)
-                                : node.data.userMessage,
-                            systemPromptConnected: !!systemPromptEdge,
-                            userMessageConnected: !!userMessageEdge,
-                            imagesConnected: !!imagesEdge,
-                        },
-                    } as LlmFlowNode;
-                }
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        resolvedSystemPrompt: systemPromptEdge
+                            ? getTextFromSourceNode(systemPromptEdge.source)
+                            : node.data.systemPrompt,
+                        resolvedUserMessage: userMessageEdge
+                            ? getTextFromSourceNode(userMessageEdge.source)
+                            : node.data.userMessage,
+                        systemPromptConnected: !!systemPromptEdge,
+                        userMessageConnected: !!userMessageEdge,
+                        imagesConnected: !!imagesEdge,
+                    },
+                } as LlmFlowNode;
+            }
 
-                if (node.type === "imageGeneratorNode") {
-                    const promptEdge = getIncomingEdge(node.id, "prompt");
-                    const imagePromptEdge = getIncomingEdge(node.id, "imagePrompt");
+            if (node.type === "imageGeneratorNode") {
+                const promptEdge = getIncomingEdge(node.id, "prompt");
+                const imagePromptEdge = getIncomingEdge(node.id, "imagePrompt");
 
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            resolvedPrompt: promptEdge
-                                ? getTextFromSourceNode(promptEdge.source)
-                                : node.data.prompt,
-                            promptConnected: !!promptEdge,
-                            imagePromptConnected: !!imagePromptEdge,
-                        },
-                    } as ImageGeneratorFlowNode;
-                }
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        resolvedPrompt: promptEdge
+                            ? getTextFromSourceNode(promptEdge.source)
+                            : node.data.prompt,
+                        promptConnected: !!promptEdge,
+                        imagePromptConnected: !!imagePromptEdge,
+                    },
+                } as ImageGeneratorFlowNode;
+            }
 
-                if (node.type === "cropImageNode") {
-                    const imageEdge = getIncomingEdge(node.id, "image_url");
+            if (node.type === "cropImageNode") {
+                const imageEdge = getIncomingEdge(node.id, "image_url");
 
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            imageConnected: !!imageEdge,
-                        },
-                    } as CropImageFlowNode;
-                }
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        imageConnected: !!imageEdge,
+                    },
+                } as CropImageFlowNode;
+            }
 
-                if (node.type === "extractFrameNode") {
-                    const videoEdge = getIncomingEdge(node.id, "video_url");
+            if (node.type === "extractFrameNode") {
+                const videoEdge = getIncomingEdge(node.id, "video_url");
 
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            videoConnected: !!videoEdge,
-                        },
-                    } as ExtractFrameFlowNode;
-                }
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        videoConnected: !!videoEdge,
+                    },
+                } as ExtractFrameFlowNode;
+            }
 
-                return node as AppFlowNode;
-            })
-        );
+            return node;
+        });
+
+        return attachNodeActions(mapped);
     }, [nodes, attachNodeActions, getIncomingEdge, getTextFromSourceNode]);
 
     const onNodesChange = useCallback(
-        (changes: NodeChange<AppFlowNode>[]) => {
-            setNodes(applyNodeChanges(changes, nodes) as AppFlowNode[]);
-        },
-        [nodes, setNodes]
-    );
+    (changes: NodeChange<AppFlowNode>[]) => {
+        const next = applyNodeChanges(changes, nodes) as AppFlowNode[];
+        setNodes(
+            next.map((node) => ({
+                ...node,
+                dragHandle: ".node-drag-handle",
+            }))
+        );
+    },
+    [nodes, setNodes]
+);
 
     const onEdgesChange = useCallback(
         (changes: EdgeChange<WorkflowEdge>[]) => {
@@ -393,6 +461,7 @@ export function WorkflowCanvas() {
                 target: params.target,
                 sourceHandle: params.sourceHandle,
                 targetHandle: params.targetHandle,
+                animated: true,
                 style: { stroke: "#c9a300", strokeWidth: 3 },
             };
 
@@ -406,13 +475,17 @@ export function WorkflowCanvas() {
     );
 
     const handlePaneContextMenu = useCallback(
-        (event: MouseEvent | React.MouseEvent<Element, MouseEvent>) => {
+        (event: React.MouseEvent<Element, MouseEvent>) => {
             event.preventDefault();
             event.stopPropagation();
             openPicker(event.clientX, event.clientY);
         },
         [openPicker]
     );
+
+    const handlePaneClick = useCallback(() => {
+        setPicker(null);
+    }, []);
 
     const handleAddNode = useCallback(
         (type: AddableNodeType) => {
@@ -426,6 +499,7 @@ export function WorkflowCanvas() {
                     id,
                     type: "promptNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Prompt",
                         content: "New prompt...",
@@ -437,6 +511,7 @@ export function WorkflowCanvas() {
                     id,
                     type: "textNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Text Node",
                         content: "New text...",
@@ -448,6 +523,7 @@ export function WorkflowCanvas() {
                     id,
                     type: "uploadImageNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Upload Image",
                         imageUrl: "",
@@ -459,6 +535,7 @@ export function WorkflowCanvas() {
                     id,
                     type: "uploadVideoNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Upload Video",
                         videoUrl: "",
@@ -470,9 +547,10 @@ export function WorkflowCanvas() {
                     id,
                     type: "llmNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Run Any LLM",
-                        model: "gemini-1.5-flash",
+                        model: "gemini-2.5-flash",
                         systemPrompt: "",
                         userMessage: "",
                         output: "",
@@ -484,6 +562,7 @@ export function WorkflowCanvas() {
                     id,
                     type: "cropImageNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Crop Image",
                         imageUrl: "",
@@ -499,6 +578,7 @@ export function WorkflowCanvas() {
                     id,
                     type: "extractFrameNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Extract Frame",
                         videoUrl: "",
@@ -512,6 +592,7 @@ export function WorkflowCanvas() {
                     id,
                     type: "imageGeneratorNode",
                     position: { x: picker.flowX, y: picker.flowY },
+                    dragHandle: ".node-drag-handle",
                     data: {
                         label: "Krea-1",
                         model: "Krea1",
@@ -530,7 +611,7 @@ export function WorkflowCanvas() {
     );
 
     return (
-        <div className="absolute inset-0">
+        <div ref={canvasRef} className="absolute inset-0">
             <ReactFlow
                 nodes={derivedNodes}
                 edges={edges}
@@ -540,6 +621,7 @@ export function WorkflowCanvas() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
+                onPaneClick={handlePaneClick}
                 onPaneContextMenu={handlePaneContextMenu}
                 isValidConnection={isValidConnection}
                 nodeTypes={nodeTypes}
@@ -547,27 +629,47 @@ export function WorkflowCanvas() {
                 fitViewOptions={{ padding: 0.2 }}
                 proOptions={{ hideAttribution: true }}
                 defaultEdgeOptions={{
+                    animated: true,
                     style: { stroke: "#c9a300", strokeWidth: 3 },
                 }}
+                nodeDragThreshold={1}
+                panOnDrag={[1, 2]}
+                selectionOnDrag={false}
+                zoomOnScroll
+                zoomOnPinch
+                zoomOnDoubleClick={false}
+                panOnScroll={false}
+                minZoom={0.2}
+                maxZoom={2}
+                nodesDraggable
+                elementsSelectable
             >
                 <Background gap={26} size={1} color="rgba(255,255,255,0.08)" />
                 <MiniMap
                     pannable
                     zoomable
+                    position="bottom-right"
                     style={{
+                        width: 180,
+                        height: 120,
                         backgroundColor: "#0f1115",
                         border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 12,
                     }}
+                    nodeColor={() => "#1e7bff"}
                 />
                 <Controls
+                    position="bottom-right"
                     style={{
+                        marginBottom: 140,
                         backgroundColor: "#111",
                         border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 12,
                     }}
                 />
             </ReactFlow>
 
-            {nodes.length === 0 && !picker && template !== "templates" && (
+            {nodes.length === 0 && !picker && template !== "templates" ? (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="pointer-events-auto text-center text-white/55">
                         <div className="text-4xl font-semibold text-white/75">Add a node</div>
@@ -575,25 +677,23 @@ export function WorkflowCanvas() {
                             Right click, or use the button below
                         </div>
                         <button
-                            onClick={() =>
-                                openPicker(window.innerWidth / 2, window.innerHeight / 2)
-                            }
+                            onClick={openPickerAtCanvasCenter}
                             className="mt-6 rounded-xl bg-white/10 px-4 py-3 text-white hover:bg-white/15"
                         >
                             Open Node Picker
                         </button>
                     </div>
                 </div>
-            )}
+            ) : null}
 
-            {picker && (
+            {picker ? (
                 <NodePicker
                     x={picker.x}
                     y={picker.y}
                     onSelect={handleAddNode}
                     onClose={() => setPicker(null)}
                 />
-            )}
+            ) : null}
         </div>
     );
 }

@@ -12,13 +12,13 @@ export function UploadVideoNode({ data }: NodeProps<UploadVideoFlowNode>) {
                 data.runStatus
             )}`}
         >
-            <div className="flex items-center justify-between px-4 pt-3 text-[12px] text-white/55">
+            <div className="node-drag-handle flex cursor-grab items-center justify-between px-4 pt-3 text-[12px] text-white/55 active:cursor-grabbing">
                 <span>{data.label || "Upload Video"}</span>
                 <span>{data.runStatus === "running" ? "Running..." : "Video"}</span>
             </div>
 
             <div className="px-4 pb-4 pt-3">
-                <label className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-[12px] border border-dashed border-white/15 bg-[#14181f] text-white/55 hover:bg-[#181d25]">
+                <label className="nodrag nopan flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-[12px] border border-dashed border-white/15 bg-[#14181f] text-white/55 hover:bg-[#181d25]">
                     {data.videoUrl ? (
                         <video
                             src={data.videoUrl}

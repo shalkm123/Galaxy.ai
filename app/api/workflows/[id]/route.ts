@@ -1,38 +1,76 @@
 import { NextResponse } from "next/server";
-import { getWorkflow, updateWorkflow } from "@/lib/mock-workflow-db";
+import { auth } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/prisma";
+import type { PersistedWorkflow } from "@/types/persisted-workflow";
 
 export async function GET(
-    _req: Request,
-    { params }: { params: Promise<{ id: string }> }
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-    const { id } = await params;
-    const workflow = getWorkflow(id);
+  const { userId } = await auth();
+  const { id } = await params;
 
-    if (!workflow) {
-        return NextResponse.json(
-            { message: "Workflow not found" },
-            { status: 404 }
-        );
-    }
+  if (!userId) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
 
-    return NextResponse.json(workflow);
+  const workflow = await prisma.workflow.findFirst({
+    where: { id, userId },
+  });
+
+  if (!workflow) {
+    return NextResponse.json({ message: "Workflow not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    id: workflow.id,
+    name: workflow.name,
+    template: workflow.template,
+    nodes: workflow.nodesJson,
+    edges: workflow.edgesJson,
+    createdAt: workflow.createdAt,
+    updatedAt: workflow.updatedAt,
+  });
 }
 
 export async function PUT(
-    req: Request,
-    { params }: { params: Promise<{ id: string }> }
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-    const body = await req.json();
-    const { id } = await params;
+  const { userId } = await auth();
+  const { id } = await params;
 
-    const workflow = updateWorkflow(id, body);
+  if (!userId) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
 
-    if (!workflow) {
-        return NextResponse.json(
-            { message: "Workflow not found" },
-            { status: 404 }
-        );
-    }
+  const body = (await req.json()) as PersistedWorkflow;
 
-    return NextResponse.json(workflow);
+  const existing = await prisma.workflow.findFirst({
+    where: { id, userId },
+  });
+
+  if (!existing) {
+    return NextResponse.json({ message: "Workflow not found" }, { status: 404 });
+  }
+
+  const workflow = await prisma.workflow.update({
+    where: { id },
+    data: {
+      name: body.name,
+      template: body.template,
+      nodesJson: body.nodes,
+      edgesJson: body.edges,
+    },
+  });
+
+  return NextResponse.json({
+    id: workflow.id,
+    name: workflow.name,
+    template: workflow.template,
+    nodes: workflow.nodesJson,
+    edges: workflow.edgesJson,
+    createdAt: workflow.createdAt,
+    updatedAt: workflow.updatedAt,
+  });
 }

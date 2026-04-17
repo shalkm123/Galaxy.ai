@@ -9,34 +9,33 @@ type HandleType =
     | "resolution";
 
 const handleTypeMap: Record<string, HandleType> = {
-    // prompt / text outputs
+    // text outputs
     "text-output": "text",
     "prompt-output": "text",
-    output: "text",
 
-    // image generator
+    // generic text inputs
     prompt: "text",
-    image: "image",
-    imagePrompt: "image",
-    style: "style",
-    styleImage: "image",
+    system_prompt: "text",
+    user_message: "text",
     raw: "text",
-    seed: "seed",
-    aspectRatio: "aspectRatio",
-    resolution: "resolution",
 
-    // upload image / crop image / extract frame
+    // image inputs / outputs
     "image-output": "image",
+    image: "image",
     image_url: "image",
+    imagePrompt: "image",
+    styleImage: "image",
+    images: "image",
 
-    // upload video / extract frame
+    // video inputs / outputs
     "video-output": "video",
     video_url: "video",
 
-    // llm
-    system_prompt: "text",
-    user_message: "text",
-    images: "image",
+    // style / params
+    style: "style",
+    seed: "seed",
+    aspectRatio: "aspectRatio",
+    resolution: "resolution",
 };
 
 export function getHandleDataType(handleId?: string | null): HandleType | null {
@@ -55,7 +54,6 @@ export function isConnectionAllowed(
 
     if (sourceType === targetType) return true;
 
-    // extra allowed compatibility rules
     if (sourceType === "image" && targetType === "style") return true;
     if (sourceType === "number" && targetType === "seed") return true;
 

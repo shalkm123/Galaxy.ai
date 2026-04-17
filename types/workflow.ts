@@ -25,6 +25,7 @@ export type ImageGeneratorNodeData = NodeRuntimeData & {
     resolvedPrompt?: string;
     promptConnected?: boolean;
     imagePromptConnected?: boolean;
+    onPromptChange?: (value: string) => void;
 };
 
 export type TextNodeData = NodeRuntimeData & {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useParams } from "next/navigation";
 import { EditorBottombar } from "@/components/editor/editor-bottom-toolbar";
 import { WorkflowCanvas } from "@/components/editor/workflow-canvas";
@@ -8,61 +8,21 @@ import { EditorShell } from "@/components/editor/editor-shell";
 import { EditorTopbar } from "@/components/editor/editor-topbar";
 import { RunWorkflowButton } from "@/components/editor/nodes/run-workflow-button";
 import { useEditorStore } from "@/store/editor-store";
-import type { AppFlowNode, WorkflowEdge } from "@/types/workflow";
-import type { EditorTemplate } from "@/store/editor-store";
 
-type WorkflowResponse = {
-    id: string;
-    name: string;
-    template: Exclude<EditorTemplate, "templates">;
-    nodes: AppFlowNode[];
-    edges: WorkflowEdge[];
-};
-
-export default function SavedEditorPage() {
+export default function EditorWorkflowPage() {
     const params = useParams<{ id: string }>();
-    const loadWorkflow = useEditorStore((state) => state.loadWorkflow);
+    const workflowId = params.id;
 
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const isLoadingWorkflow = useEditorStore((state) => state.isLoadingWorkflow);
+    const beginWorkflowLoad = useEditorStore((state) => state.beginWorkflowLoad);
+    const loadWorkflowById = useEditorStore((state) => state.loadWorkflowById);
 
     useEffect(() => {
-        let cancelled = false;
+        if (!workflowId) return;
 
-        async function fetchWorkflow() {
-            try {
-                setLoading(true);
-                setError(null);
-
-                const response = await fetch(`/api/workflows/${params.id}`);
-                if (!response.ok) {
-                    throw new Error("Failed to load workflow");
-                }
-
-                const workflow = (await response.json()) as WorkflowResponse;
-
-                if (!cancelled) {
-                    loadWorkflow(workflow);
-                    setLoading(false);
-                }
-            } catch (err) {
-                if (!cancelled) {
-                    setError(
-                        err instanceof Error ? err.message : "Failed to load workflow"
-                    );
-                    setLoading(false);
-                }
-            }
-        }
-
-        if (params.id) {
-            fetchWorkflow();
-        }
-
-        return () => {
-            cancelled = true;
-        };
-    }, [params.id, loadWorkflow]);
+        beginWorkflowLoad();
+        loadWorkflowById(workflowId);
+    }, [workflowId, beginWorkflowLoad, loadWorkflowById]);
 
     return (
         <EditorShell>
@@ -78,13 +38,9 @@ export default function SavedEditorPage() {
                 <div className="relative flex-1 overflow-hidden">
                     <EditorTopbar />
 
-                    {loading ? (
-                        <div className="flex h-full items-center justify-center text-white/60">
+                    {isLoadingWorkflow ? (
+                        <div className="absolute inset-0 flex items-center justify-center text-white/60">
                             Loading workflow...
-                        </div>
-                    ) : error ? (
-                        <div className="flex h-full items-center justify-center text-red-300">
-                            {error}
                         </div>
                     ) : (
                         <>

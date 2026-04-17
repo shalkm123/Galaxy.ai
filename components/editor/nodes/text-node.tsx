@@ -14,7 +14,7 @@ export function TextNode({ data }: NodeProps<TextFlowNode>) {
                 data.runStatus
             )}`}
         >
-            <div className="flex items-center justify-between px-4 pt-3 text-[12px] text-white/55">
+            <div className="node-drag-handle flex cursor-grab items-center justify-between px-4 pt-3 text-[12px] text-white/55 active:cursor-grabbing">
                 <span>{data.label || "Text Node"}</span>
                 <span>{data.runStatus === "running" ? "Running..." : "Output"}</span>
             </div>
@@ -25,8 +25,9 @@ export function TextNode({ data }: NodeProps<TextFlowNode>) {
                     disabled={disabled}
                     onChange={(e) => data.onChange?.(e.target.value)}
                     placeholder="Enter text..."
-                    className={`min-h-[120px] w-full resize-none rounded-[12px] p-3 text-sm outline-none placeholder:text-white/35 ${disabled ? "bg-[#10141a] text-white/35" : "bg-[#14181f] text-white"
-                        }`}
+                    className={`nodrag nopan min-h-[120px] w-full resize-none rounded-[12px] p-3 text-sm outline-none placeholder:text-white/35 ${
+                        disabled ? "bg-[#10141a] text-white/35" : "bg-[#14181f] text-white"
+                    }`}
                 />
             </div>
 

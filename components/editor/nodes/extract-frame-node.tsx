@@ -11,7 +11,7 @@ export function ExtractFrameNode({ data }: NodeProps<ExtractFrameFlowNode>) {
                 data.runStatus
             )}`}
         >
-            <div className="flex items-center justify-between px-4 pt-3 text-[12px] text-white/55">
+            <div className="node-drag-handle flex cursor-grab items-center justify-between px-4 pt-3 text-[12px] text-white/55 active:cursor-grabbing">
                 <span>{data.label || "Extract Frame"}</span>
                 <span>{data.runStatus === "running" ? "Running..." : "Image"}</span>
             </div>
@@ -26,17 +26,37 @@ export function ExtractFrameNode({ data }: NodeProps<ExtractFrameFlowNode>) {
                     <input
                         value={data.timestamp || "0"}
                         onChange={(e) => data.onTimestampChange?.(e.target.value)}
-                        className="w-full rounded-[10px] bg-[#14181f] px-3 py-2 text-sm text-white outline-none"
+                        className="nodrag nopan w-full rounded-[10px] bg-[#14181f] px-3 py-2 text-sm text-white outline-none"
                     />
                 </div>
 
                 <div className="mt-4 rounded-[12px] bg-[#14181f] p-3 text-sm text-white/45">
-                    {data.outputImageUrl ? "Frame image ready" : "Output frame preview will appear here..."}
+                    {data.outputImageUrl ? (
+                        <img
+                            src={data.outputImageUrl}
+                            alt="Extracted frame"
+                            className="w-full rounded-[10px] object-cover"
+                        />
+                    ) : (
+                        "Output frame preview will appear here..."
+                    )}
                 </div>
             </div>
 
-            <Handle id="video_url" type="target" position={Position.Left} className="!h-3.5 !w-3.5 !border-0 !bg-[#ff9f1a]" style={{ top: 70 }} />
-            <Handle id="output" type="source" position={Position.Right} className="!h-3.5 !w-3.5 !border-0 !bg-[#f59e0b]" style={{ top: 70 }} />
+            <Handle
+                id="video_url"
+                type="target"
+                position={Position.Left}
+                className="!h-3.5 !w-3.5 !border-0 !bg-[#ff9f1a]"
+                style={{ top: 70 }}
+            />
+            <Handle
+                id="image-output"
+                type="source"
+                position={Position.Right}
+                className="!h-3.5 !w-3.5 !border-0 !bg-[#f59e0b]"
+                style={{ top: 70 }}
+            />
         </div>
     );
 }

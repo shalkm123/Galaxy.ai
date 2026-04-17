@@ -13,6 +13,10 @@ import {
 import { getExecutionOrder, hasCycle } from "@/lib/graph-helpers";
 import { serializeWorkflow } from "@/lib/workflow-serializer";
 import type { WorkflowRun } from "@/types/run-history";
+import type { PersistedWorkflow } from "@/types/persisted-workflow";
+import type { PersistedWorkflowRun } from "@/types/persisted-run";
+import type { PersistedWorkflow } from "@/types/persisted-workflow";
+import type { PersistedWorkflowRun } from "@/types/persisted-run";
 
 export type EditorTemplate = "templates" | "empty" | "image-generator";
 
@@ -32,7 +36,10 @@ type EditorStore = {
     isRunning: boolean;
     isSaving: boolean;
     hasHydrated: boolean;
+     isLoadingWorkflow: boolean;
 
+    beginWorkflowLoad: () => void;
+    loadWorkflowById: (workflowId: string) => Promise<void>;
     setTemplate: (template: EditorTemplate) => void;
     setWorkflowId: (workflowId: string | null) => void;
     setWorkflowName: (workflowName: string) => void;
@@ -40,6 +47,7 @@ type EditorStore = {
     setNodes: (nodes: AppFlowNode[]) => void;
     setEdges: (edges: WorkflowEdge[]) => void;
     resetWorkflow: (nodes: AppFlowNode[], edges: WorkflowEdge[]) => void;
+
     loadWorkflow: (payload: {
         id: string;
         name: string;
@@ -47,6 +55,13 @@ type EditorStore = {
         nodes: AppFlowNode[];
         edges: WorkflowEdge[];
     }) => void;
+
+    beginWorkflowLoad: () => void;
+    loadWorkflowById: (workflowId: string) => Promise<void>;
+
+    loadRuns: (runs: WorkflowRun[]) => void;
+    persistLatestRun: () => Promise<void>;
+    fetchRunsForWorkflow: (workflowId: string) => Promise<void>;
 
     updateNodeData: (
         nodeId: string,
@@ -75,6 +90,39 @@ function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function sanitizeNodesForEditor(nodes: AppFlowNode[]) {
+    return nodes.map((node) => ({
+        ...node,
+        data: {
+            ...node.data,
+            runStatus: "idle" as const,
+            error: undefined,
+            durationMs: undefined,
+        },
+    }));
+}
+
+function mapPersistedRunToWorkflowRun(run: PersistedWorkflowRun): WorkflowRun {
+    return {
+        id: run.id ?? `run-${Date.now()}`,
+        createdAt: run.createdAt ?? new Date().toISOString(),
+        status: run.status,
+        durationMs: run.durationMs,
+        scope: run.scope,
+        nodeRuns: run.nodeRuns.map((nodeRun) => ({
+            nodeId: nodeRun.nodeId,
+            nodeLabel: nodeRun.nodeLabel,
+            nodeType: nodeRun.nodeType,
+            status: nodeRun.status,
+            startedAt: nodeRun.startedAt,
+            finishedAt: nodeRun.finishedAt,
+            durationMs: nodeRun.durationMs,
+            output: nodeRun.output,
+            error: nodeRun.error,
+        })),
+    };
+}
+
 export const useEditorStore = create<EditorStore>((set, get) => ({
     template: "templates",
     workflowId: null,
@@ -89,6 +137,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     isRunning: false,
     isSaving: false,
     hasHydrated: false,
+    isLoadingWorkflow: false,
 
     setTemplate: (template) => set({ template }),
 
@@ -102,15 +151,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     resetWorkflow: (nodes, edges) =>
         set({
-            nodes: nodes.map((node) => ({
-                ...node,
-                data: {
-                    ...node.data,
-                    runStatus: "idle",
-                    error: undefined,
-                    durationMs: undefined,
-                },
-            })),
+            nodes: sanitizeNodesForEditor(nodes),
             edges,
         }),
 
@@ -119,28 +160,118 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             workflowId: payload.id,
             workflowName: payload.name,
             template: payload.template,
-            nodes: payload.nodes.map((node) => ({
-                ...node,
-                data: {
-                    ...node.data,
-                    runStatus: "idle",
-                    error: undefined,
-                    durationMs: undefined,
-                },
-            })),
+            nodes: sanitizeNodesForEditor(payload.nodes),
             edges: payload.edges,
             runs: [],
             selectedRunId: null,
+            isLoadingWorkflow: false,
         }),
+
+        beginWorkflowLoad: () =>
+        set({
+            isLoadingWorkflow: true,
+            nodes: [],
+            edges: [],
+            runs: [],
+            selectedRunId: null,
+        }),
+
+    loadWorkflowById: async (workflowId) => {
+        try {
+            const response = await fetch(`/api/workflows/${workflowId}`, {
+                method: "GET",
+                cache: "no-store",
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to load workflow");
+            }
+
+            const workflow = (await response.json()) as PersistedWorkflow;
+
+            set({
+                workflowId: workflow.id ?? workflowId,
+                workflowName: workflow.name,
+                template: workflow.template,
+                nodes: sanitizeNodesForEditor(workflow.nodes),
+                edges: workflow.edges,
+                runs: [],
+                selectedRunId: null,
+                hasHydrated: true,
+                isLoadingWorkflow: false,
+            });
+
+            await get().fetchRunsForWorkflow(workflowId);
+        } catch (error) {
+            console.error(error);
+            set({ isLoadingWorkflow: false });
+        }
+    },
+
+    loadRuns: (runs) =>
+        set({
+            runs,
+            selectedRunId: runs[0]?.id ?? null,
+        }),
+
+         persistLatestRun: async () => {
+        const { workflowId, runs } = get();
+
+        if (!workflowId || runs.length === 0) return;
+
+        const latestRun = runs[0];
+        const isFinished = latestRun.status !== "running";
+
+        try {
+            await fetch(`/api/workflows/${workflowId}/runs`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    workflowId,
+                    status: latestRun.status,
+                    scope: latestRun.scope,
+                    durationMs: latestRun.durationMs,
+                    finishedAt: isFinished ? new Date().toISOString() : undefined,
+                    nodeRuns: latestRun.nodeRuns,
+                }),
+            });
+        } catch (error) {
+            console.error(error);
+        }
+    },
+
+        fetchRunsForWorkflow: async (workflowId) => {
+        try {
+            const response = await fetch(`/api/workflows/${workflowId}/runs`, {
+                method: "GET",
+                cache: "no-store",
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to fetch workflow runs");
+            }
+
+            const data = (await response.json()) as PersistedWorkflowRun[];
+
+            set({
+                runs: data.map(mapPersistedRunToWorkflowRun),
+                selectedRunId: data[0]?.id ?? null,
+            });
+        } catch (error) {
+            console.error(error);
+        }
+    },
 
     updateNodeData: (nodeId, updater) =>
         set((state) => ({
             nodes: state.nodes.map((node) =>
                 node.id === nodeId
                     ? {
-                        ...node,
-                        data: updater(node.data),
-                    }
+                          ...node,
+                          data: updater(node.data),
+                      }
                     : node
             ),
         })),
@@ -150,13 +281,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             nodes: state.nodes.map((node) =>
                 node.id === nodeId
                     ? {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            ...extra,
-                            runStatus: status,
-                        },
-                    }
+                          ...node,
+                          data: {
+                              ...node.data,
+                              ...extra,
+                              runStatus: status,
+                          },
+                      }
                     : node
             ),
         })),
@@ -221,7 +352,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                         : "empty",
                 workflowId: parsed.workflowId ?? null,
                 workflowName: parsed.workflowName ?? "Untitled Workflow",
-                nodes: parsed.nodes,
+                nodes: sanitizeNodesForEditor(parsed.nodes),
                 edges: parsed.edges,
             });
 
@@ -237,13 +368,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     },
 
     saveWorkflow: async () => {
-        const {
-            workflowId,
-            workflowName,
-            template,
-            nodes,
-            edges,
-        } = get();
+        const { workflowId, workflowName, template, nodes, edges } = get();
 
         if (template === "templates") return;
 
@@ -258,17 +383,28 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         set({ isSaving: true });
 
         try {
-            const isUpdate = Boolean(workflowId);
-            const endpoint = isUpdate ? `/api/workflows/${workflowId}` : "/api/workflows";
-            const method = isUpdate ? "PUT" : "POST";
+            const trySave = async (id: string | null) => {
+                const isUpdate = Boolean(id);
+                const endpoint = isUpdate ? `/api/workflows/${id}` : "/api/workflows";
+                const method = isUpdate ? "PUT" : "POST";
 
-            const response = await fetch(endpoint, {
-                method,
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(payload),
-            });
+                return fetch(endpoint, {
+                    method,
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        ...payload,
+                        id: id ?? undefined,
+                    }),
+                });
+            };
+
+            let response = await trySave(workflowId);
+
+            if (response.status === 404 && workflowId) {
+                response = await trySave(null);
+            }
 
             if (!response.ok) {
                 throw new Error("Failed to save workflow");
@@ -277,7 +413,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             const saved = await response.json();
 
             set({
-                workflowId: saved.id ?? workflowId,
+                workflowId: saved.id ?? null,
                 workflowName: saved.name ?? workflowName,
                 isSaving: false,
             });
@@ -287,43 +423,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }
     },
 
-    runWorkflow: async () => {
-        const { nodes, edges, isRunning, template } = get();
+        runWorkflow: async () => {
+        const { nodes, edges, isRunning, template, workflowId } = get();
 
         if (template === "templates" || isRunning || nodes.length === 0) return;
 
-        const startedAt = Date.now();
         const run = createInitialWorkflowRun(nodes);
-
-        if (hasCycle(nodes, edges)) {
-            const failedRun: WorkflowRun = {
-                ...run,
-                status: "failed",
-                durationMs: 0,
-                nodeRuns: run.nodeRuns.map((nodeRun) => ({
-                    ...nodeRun,
-                    status: "failed",
-                    error: "Execution blocked: graph contains a cycle.",
-                })),
-            };
-
-            set((state) => ({
-                runs: [failedRun, ...state.runs],
-                selectedRunId: failedRun.id,
-                nodes: state.nodes.map((node) => ({
-                    ...node,
-                    data: {
-                        ...node.data,
-                        runStatus: "failed",
-                        error: "Execution blocked: graph contains a cycle.",
-                    },
-                })),
-            }));
-
-            return;
-        }
-
-        const orderedNodes = getExecutionOrder(nodes, edges);
 
         set((state) => ({
             isRunning: true,
@@ -340,109 +445,104 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             })),
         }));
 
-        for (const node of orderedNodes) {
-            const nodeStart = Date.now();
+        try {
+            const response = await fetch("/api/workflows/execute", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    workflowId,
+                    template,
+                    nodes,
+                    edges,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error("Execution failed");
+            }
+
+            const result = await response.json();
 
             set((state) => ({
-                nodes: state.nodes.map((n) =>
-                    n.id === node.id
-                        ? {
-                            ...n,
-                            data: {
-                                ...n.data,
-                                runStatus: "running",
-                            },
-                        }
-                        : n
-                ),
+                isRunning: false,
+                nodes: result.updatedNodes.map((node: AppFlowNode) => {
+                    const execution = result.nodeResults.find(
+                        (r: { nodeId: string }) => r.nodeId === node.id
+                    );
+
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            runStatus:
+                                execution?.status === "success" ? "success" : "failed",
+                            durationMs: execution?.durationMs,
+                            error: execution?.error,
+                            output:
+                                execution?.output ?? (node.data as { output?: string }).output,
+                        },
+                    };
+                }),
                 runs: state.runs.map((r) =>
                     r.id === run.id
                         ? {
-                            ...r,
-                            nodeRuns: r.nodeRuns.map((nr) =>
-                                nr.nodeId === node.id
-                                    ? {
-                                        ...nr,
-                                        status: "running",
-                                        startedAt: new Date().toISOString(),
-                                    }
-                                    : nr
-                            ),
-                        }
+                              ...r,
+                              status: result.status,
+                              durationMs: result.durationMs,
+                              nodeRuns: r.nodeRuns.map((nr) => {
+                                  const execution = result.nodeResults.find(
+                                      (res: { nodeId: string }) =>
+                                          res.nodeId === nr.nodeId
+                                  );
+
+                                  return execution
+                                      ? {
+                                            ...nr,
+                                            status: execution.status,
+                                            finishedAt: new Date().toISOString(),
+                                            durationMs: execution.durationMs,
+                                            output: execution.output,
+                                            error: execution.error,
+                                        }
+                                      : nr;
+                              }),
+                          }
                         : r
                 ),
             }));
 
-            await sleep(700);
-
-            const didFail = false;
-            const durationMs = Date.now() - nodeStart;
-
-            const mockOutput =
-                node.type === "llmNode"
-                    ? `Generated response for ${node.data.userMessage || "input"}`
-                    : node.type === "extractFrameNode"
-                        ? "Frame extracted successfully"
-                        : node.type === "cropImageNode"
-                            ? "Image cropped successfully"
-                            : node.type === "imageGeneratorNode"
-                                ? "Image generated successfully"
-                                : node.type === "uploadImageNode"
-                                    ? "Image input ready"
-                                    : node.type === "uploadVideoNode"
-                                        ? "Video input ready"
-                                        : node.type === "promptNode"
-                                            ? node.data.content || "Prompt ready"
-                                            : node.type === "textNode"
-                                                ? node.data.content || "Text ready"
-                                                : "Completed successfully";
+            await get().persistLatestRun();
+        } catch (error) {
+            console.error(error);
 
             set((state) => ({
-                nodes: state.nodes.map((n) =>
-                    n.id === node.id
-                        ? {
-                            ...n,
-                            data: {
-                                ...n.data,
-                                runStatus: didFail ? "failed" : "success",
-                                durationMs,
-                                output: didFail ? n.data.output : mockOutput,
-                            },
-                        }
-                        : n
-                ),
+                isRunning: false,
                 runs: state.runs.map((r) =>
                     r.id === run.id
                         ? {
-                            ...r,
-                            nodeRuns: r.nodeRuns.map((nr) =>
-                                nr.nodeId === node.id
-                                    ? {
-                                        ...nr,
-                                        status: didFail ? "failed" : "success",
-                                        finishedAt: new Date().toISOString(),
-                                        durationMs,
-                                        output: didFail ? nr.output : mockOutput,
-                                    }
-                                    : nr
-                            ),
-                        }
+                              ...r,
+                              status: "failed",
+                              nodeRuns: r.nodeRuns.map((nr) => ({
+                                  ...nr,
+                                  status: "failed",
+                                  error: "Execution request failed",
+                              })),
+                          }
                         : r
                 ),
+                nodes: state.nodes.map((node) => ({
+                    ...node,
+                    data: {
+                        ...node.data,
+                        runStatus: "failed",
+                        error: "Execution request failed",
+                    },
+                })),
             }));
+
+            await get().persistLatestRun();
         }
-
-        set((state) => ({
-            isRunning: false,
-            runs: state.runs.map((r) =>
-                r.id === run.id
-                    ? {
-                        ...r,
-                        status: finalizeRunStatus(r.nodeRuns),
-                        durationMs: Date.now() - startedAt,
-                    }
-                    : r
-            ),
-        }));
     },
 }));

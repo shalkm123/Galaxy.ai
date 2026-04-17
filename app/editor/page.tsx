@@ -11,6 +11,7 @@ import { useEditorStore } from "@/store/editor-store";
 
 export default function EditorPage() {
     const template = useEditorStore((state) => state.template);
+    const workflowId = useEditorStore((state) => state.workflowId);
     const nodes = useEditorStore((state) => state.nodes);
     const edges = useEditorStore((state) => state.edges);
     const hasHydrated = useEditorStore((state) => state.hasHydrated);
@@ -19,6 +20,7 @@ export default function EditorPage() {
     const loadFromLocalStorage = useEditorStore((state) => state.loadFromLocalStorage);
     const saveToLocalStorage = useEditorStore((state) => state.saveToLocalStorage);
     const setHasHydrated = useEditorStore((state) => state.setHasHydrated);
+    const fetchRunsForWorkflow = useEditorStore((state) => state.fetchRunsForWorkflow);
 
     useEffect(() => {
         if (hasHydrated) return;
@@ -38,6 +40,11 @@ export default function EditorPage() {
 
         saveToLocalStorage();
     }, [template, nodes, edges, hasHydrated, saveToLocalStorage]);
+
+    useEffect(() => {
+        if (!workflowId) return;
+        fetchRunsForWorkflow(workflowId);
+    }, [workflowId, fetchRunsForWorkflow]);
 
     const showTemplates = hasHydrated && template === "templates";
     const showCanvas = hasHydrated && template !== "templates";
