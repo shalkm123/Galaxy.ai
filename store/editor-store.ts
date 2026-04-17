@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+
 import type {
     AppFlowNode,
     WorkflowEdge,
@@ -10,11 +11,9 @@ import {
     createInitialWorkflowRun,
     finalizeRunStatus,
 } from "@/lib/mock-runner";
-import { getExecutionOrder, hasCycle } from "@/lib/graph-helpers";
 import { serializeWorkflow } from "@/lib/workflow-serializer";
+
 import type { WorkflowRun } from "@/types/run-history";
-import type { PersistedWorkflow } from "@/types/persisted-workflow";
-import type { PersistedWorkflowRun } from "@/types/persisted-run";
 import type { PersistedWorkflow } from "@/types/persisted-workflow";
 import type { PersistedWorkflowRun } from "@/types/persisted-run";
 
@@ -36,10 +35,11 @@ type EditorStore = {
     isRunning: boolean;
     isSaving: boolean;
     hasHydrated: boolean;
-     isLoadingWorkflow: boolean;
+    isLoadingWorkflow: boolean;
 
     beginWorkflowLoad: () => void;
     loadWorkflowById: (workflowId: string) => Promise<void>;
+
     setTemplate: (template: EditorTemplate) => void;
     setWorkflowId: (workflowId: string | null) => void;
     setWorkflowName: (workflowName: string) => void;
@@ -55,9 +55,6 @@ type EditorStore = {
         nodes: AppFlowNode[];
         edges: WorkflowEdge[];
     }) => void;
-
-    beginWorkflowLoad: () => void;
-    loadWorkflowById: (workflowId: string) => Promise<void>;
 
     loadRuns: (runs: WorkflowRun[]) => void;
     persistLatestRun: () => Promise<void>;
@@ -86,10 +83,6 @@ type EditorStore = {
     setHasHydrated: (value: boolean) => void;
 };
 
-function sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function sanitizeNodesForEditor(nodes: AppFlowNode[]) {
     return nodes.map((node) => ({
         ...node,
@@ -104,22 +97,13 @@ function sanitizeNodesForEditor(nodes: AppFlowNode[]) {
 
 function mapPersistedRunToWorkflowRun(run: PersistedWorkflowRun): WorkflowRun {
     return {
-        id: run.id ?? `run-${Date.now()}`,
-        createdAt: run.createdAt ?? new Date().toISOString(),
+        id: run.id,
         status: run.status,
-        durationMs: run.durationMs,
         scope: run.scope,
-        nodeRuns: run.nodeRuns.map((nodeRun) => ({
-            nodeId: nodeRun.nodeId,
-            nodeLabel: nodeRun.nodeLabel,
-            nodeType: nodeRun.nodeType,
-            status: nodeRun.status,
-            startedAt: nodeRun.startedAt,
-            finishedAt: nodeRun.finishedAt,
-            durationMs: nodeRun.durationMs,
-            output: nodeRun.output,
-            error: nodeRun.error,
-        })),
+        durationMs: run.durationMs,
+        createdAt: run.createdAt,
+        finishedAt: run.finishedAt,
+        nodeRuns: run.nodeRuns,
     };
 }
 
@@ -139,35 +123,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     hasHydrated: false,
     isLoadingWorkflow: false,
 
-    setTemplate: (template) => set({ template }),
-
-    setWorkflowId: (workflowId) => set({ workflowId }),
-
-    setWorkflowName: (workflowName) => set({ workflowName }),
-
-    setNodes: (nodes) => set({ nodes }),
-
-    setEdges: (edges) => set({ edges }),
-
-    resetWorkflow: (nodes, edges) =>
-        set({
-            nodes: sanitizeNodesForEditor(nodes),
-            edges,
-        }),
-
-    loadWorkflow: (payload) =>
-        set({
-            workflowId: payload.id,
-            workflowName: payload.name,
-            template: payload.template,
-            nodes: sanitizeNodesForEditor(payload.nodes),
-            edges: payload.edges,
-            runs: [],
-            selectedRunId: null,
-            isLoadingWorkflow: false,
-        }),
-
-        beginWorkflowLoad: () =>
+    beginWorkflowLoad: () =>
         set({
             isLoadingWorkflow: true,
             nodes: [],
@@ -208,13 +164,38 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }
     },
 
+    setTemplate: (template) => set({ template }),
+    setWorkflowId: (workflowId) => set({ workflowId }),
+    setWorkflowName: (workflowName) => set({ workflowName }),
+
+    setNodes: (nodes) => set({ nodes }),
+    setEdges: (edges) => set({ edges }),
+
+    resetWorkflow: (nodes, edges) =>
+        set({
+            nodes: sanitizeNodesForEditor(nodes),
+            edges,
+        }),
+
+    loadWorkflow: (payload) =>
+        set({
+            workflowId: payload.id,
+            workflowName: payload.name,
+            template: payload.template,
+            nodes: sanitizeNodesForEditor(payload.nodes),
+            edges: payload.edges,
+            runs: [],
+            selectedRunId: null,
+            isLoadingWorkflow: false,
+        }),
+
     loadRuns: (runs) =>
         set({
             runs,
             selectedRunId: runs[0]?.id ?? null,
         }),
 
-         persistLatestRun: async () => {
+    persistLatestRun: async () => {
         const { workflowId, runs } = get();
 
         if (!workflowId || runs.length === 0) return;
@@ -242,7 +223,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }
     },
 
-        fetchRunsForWorkflow: async (workflowId) => {
+    fetchRunsForWorkflow: async (workflowId) => {
         try {
             const response = await fetch(`/api/workflows/${workflowId}/runs`, {
                 method: "GET",
@@ -276,7 +257,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             ),
         })),
 
-    setNodeRunStatus: (nodeId, status, extra = {}) =>
+    setNodeRunStatus: (nodeId, status, extra) =>
         set((state) => ({
             nodes: state.nodes.map((node) =>
                 node.id === nodeId
@@ -284,8 +265,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                           ...node,
                           data: {
                               ...node.data,
-                              ...extra,
                               runStatus: status,
+                              ...extra,
                           },
                       }
                     : node
@@ -294,77 +275,141 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     selectRun: (runId) => set({ selectedRunId: runId }),
 
-    clearRuns: () => set({ runs: [], selectedRunId: null }),
+    clearRuns: () =>
+        set({
+            runs: [],
+            selectedRunId: null,
+        }),
 
-    setHasHydrated: (value) => set({ hasHydrated: value }),
+    runWorkflow: async () => {
+        const { nodes, edges, isRunning, template, workflowId } = get();
 
-    saveToLocalStorage: () => {
-        if (typeof window === "undefined") return;
+        if (template === "templates" || isRunning || nodes.length === 0) return;
 
-        const { template, workflowId, workflowName, nodes, edges } = get();
+        const run = createInitialWorkflowRun(nodes);
 
-        const payload = {
-            template,
-            workflowId,
-            workflowName,
-            nodes: nodes.map((node) => ({
+        set((state) => ({
+            isRunning: true,
+            runs: [run, ...state.runs],
+            selectedRunId: run.id,
+            nodes: state.nodes.map((node) => ({
                 ...node,
                 data: {
                     ...node.data,
-                    onChange: undefined,
-                    onUpload: undefined,
-                    onSystemPromptChange: undefined,
-                    onUserMessageChange: undefined,
-                    onFieldChange: undefined,
-                    onTimestampChange: undefined,
+                    runStatus: "pending",
+                    error: undefined,
+                    durationMs: undefined,
                 },
             })),
-            edges,
-            savedAt: new Date().toISOString(),
-        };
-
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    },
-
-    loadFromLocalStorage: () => {
-        if (typeof window === "undefined") return false;
+        }));
 
         try {
-            const raw = window.localStorage.getItem(STORAGE_KEY);
-            if (!raw) return false;
-
-            const parsed = JSON.parse(raw) as {
-                template?: EditorTemplate;
-                workflowId?: string | null;
-                workflowName?: string;
-                nodes?: AppFlowNode[];
-                edges?: WorkflowEdge[];
-            };
-
-            if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
-                return false;
-            }
-
-            set({
-                template:
-                    parsed.template && parsed.template !== "templates"
-                        ? parsed.template
-                        : "empty",
-                workflowId: parsed.workflowId ?? null,
-                workflowName: parsed.workflowName ?? "Untitled Workflow",
-                nodes: sanitizeNodesForEditor(parsed.nodes),
-                edges: parsed.edges,
+            const response = await fetch("/api/workflows/execute", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    workflowId,
+                    template,
+                    nodes,
+                    edges,
+                }),
             });
 
-            return true;
-        } catch {
-            return false;
-        }
-    },
+            if (!response.ok) {
+                throw new Error("Execution failed");
+            }
 
-    clearSavedWorkflow: () => {
-        if (typeof window === "undefined") return;
-        window.localStorage.removeItem(STORAGE_KEY);
+            const result = await response.json();
+
+            const mergedNodes = (result.updatedNodes as AppFlowNode[]).map((node) => {
+                const execution = result.nodeResults.find(
+                    (r: { nodeId: string }) => r.nodeId === node.id
+                );
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        runStatus:
+                            execution?.status === "success"
+                                ? "success"
+                                : execution?.status === "failed"
+                                  ? "failed"
+                                  : "idle",
+                        error: execution?.error,
+                        durationMs: execution?.durationMs,
+                        output:
+                            execution?.output !== undefined
+                                ? execution.output
+                                : node.data.output,
+                    },
+                };
+            });
+
+            const updatedNodeRuns = run.nodeRuns.map((nodeRun) => {
+                const execution = result.nodeResults.find(
+                    (r: { nodeId: string }) => r.nodeId === nodeRun.nodeId
+                );
+
+                return execution
+                    ? {
+                          ...nodeRun,
+                          status: execution.status,
+                          output: execution.output,
+                          error: execution.error,
+                          durationMs: execution.durationMs,
+                      }
+                    : nodeRun;
+            });
+
+            const finishedRun: WorkflowRun = {
+                ...run,
+                durationMs: result.durationMs,
+                status: finalizeRunStatus(updatedNodeRuns),
+                nodeRuns: updatedNodeRuns,
+            };
+
+            set((state) => ({
+                isRunning: false,
+                nodes: mergedNodes,
+                runs: state.runs.map((r) => (r.id === run.id ? finishedRun : r)),
+                selectedRunId: run.id,
+            }));
+
+            await get().persistLatestRun();
+        } catch (error) {
+            console.error(error);
+
+            const failedNodeRuns = run.nodeRuns.map((nodeRun) => ({
+                ...nodeRun,
+                status: "failed" as const,
+                error: "Execution failed",
+            }));
+
+            const failedRun: WorkflowRun = {
+                ...run,
+                status: finalizeRunStatus(failedNodeRuns),
+                nodeRuns: failedNodeRuns,
+            };
+
+            set((state) => ({
+                isRunning: false,
+                nodes: state.nodes.map((node) => ({
+                    ...node,
+                    data: {
+                        ...node.data,
+                        runStatus: "failed",
+                        error: "Execution failed",
+                    },
+                })),
+                runs: state.runs.map((r) => (r.id === run.id ? failedRun : r)),
+                selectedRunId: run.id,
+            }));
+
+            await get().persistLatestRun();
+        }
     },
 
     saveWorkflow: async () => {
@@ -423,126 +468,61 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }
     },
 
-        runWorkflow: async () => {
-        const { nodes, edges, isRunning, template, workflowId } = get();
+    saveToLocalStorage: () => {
+        if (typeof window === "undefined") return;
 
-        if (template === "templates" || isRunning || nodes.length === 0) return;
+        const { template, workflowId, workflowName, nodes, edges } = get();
 
-        const run = createInitialWorkflowRun(nodes);
+        if (template === "templates") return;
 
-        set((state) => ({
-            isRunning: true,
-            runs: [run, ...state.runs],
-            selectedRunId: run.id,
-            nodes: state.nodes.map((node) => ({
-                ...node,
-                data: {
-                    ...node.data,
-                    runStatus: "pending",
-                    error: undefined,
-                    durationMs: undefined,
-                },
-            })),
-        }));
+        window.localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+                template,
+                workflowId,
+                workflowName,
+                nodes,
+                edges,
+            })
+        );
+    },
+
+    loadFromLocalStorage: () => {
+        if (typeof window === "undefined") return false;
+
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
 
         try {
-            const response = await fetch("/api/workflows/execute", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    workflowId,
-                    template,
-                    nodes,
-                    edges,
-                }),
+            const parsed = JSON.parse(raw) as {
+                template?: EditorTemplate;
+                workflowId?: string | null;
+                workflowName?: string;
+                nodes: AppFlowNode[];
+                edges: WorkflowEdge[];
+            };
+
+            set({
+                template:
+                    parsed.template && parsed.template !== "templates"
+                        ? parsed.template
+                        : "empty",
+                workflowId: parsed.workflowId ?? null,
+                workflowName: parsed.workflowName ?? "Untitled Workflow",
+                nodes: sanitizeNodesForEditor(parsed.nodes),
+                edges: parsed.edges,
             });
 
-            if (!response.ok) {
-                throw new Error("Execution failed");
-            }
-
-            const result = await response.json();
-
-            set((state) => ({
-                isRunning: false,
-                nodes: result.updatedNodes.map((node: AppFlowNode) => {
-                    const execution = result.nodeResults.find(
-                        (r: { nodeId: string }) => r.nodeId === node.id
-                    );
-
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            runStatus:
-                                execution?.status === "success" ? "success" : "failed",
-                            durationMs: execution?.durationMs,
-                            error: execution?.error,
-                            output:
-                                execution?.output ?? (node.data as { output?: string }).output,
-                        },
-                    };
-                }),
-                runs: state.runs.map((r) =>
-                    r.id === run.id
-                        ? {
-                              ...r,
-                              status: result.status,
-                              durationMs: result.durationMs,
-                              nodeRuns: r.nodeRuns.map((nr) => {
-                                  const execution = result.nodeResults.find(
-                                      (res: { nodeId: string }) =>
-                                          res.nodeId === nr.nodeId
-                                  );
-
-                                  return execution
-                                      ? {
-                                            ...nr,
-                                            status: execution.status,
-                                            finishedAt: new Date().toISOString(),
-                                            durationMs: execution.durationMs,
-                                            output: execution.output,
-                                            error: execution.error,
-                                        }
-                                      : nr;
-                              }),
-                          }
-                        : r
-                ),
-            }));
-
-            await get().persistLatestRun();
-        } catch (error) {
-            console.error(error);
-
-            set((state) => ({
-                isRunning: false,
-                runs: state.runs.map((r) =>
-                    r.id === run.id
-                        ? {
-                              ...r,
-                              status: "failed",
-                              nodeRuns: r.nodeRuns.map((nr) => ({
-                                  ...nr,
-                                  status: "failed",
-                                  error: "Execution request failed",
-                              })),
-                          }
-                        : r
-                ),
-                nodes: state.nodes.map((node) => ({
-                    ...node,
-                    data: {
-                        ...node.data,
-                        runStatus: "failed",
-                        error: "Execution request failed",
-                    },
-                })),
-            }));
-
-            await get().persistLatestRun();
+            return true;
+        } catch {
+            return false;
         }
     },
+
+    clearSavedWorkflow: () => {
+        if (typeof window === "undefined") return;
+        window.localStorage.removeItem(STORAGE_KEY);
+    },
+
+    setHasHydrated: (value) => set({ hasHydrated: value }),
 }));

@@ -1,318 +1,250 @@
 import type { AppFlowNode, WorkflowEdge } from "@/types/workflow";
-import { getExecutionOrder, hasCycle } from "@/lib/graph-helpers";
-import type { ExecutionNodeResult } from "@/types/execution";
+import type { ExecutionNodeResult, ExecutionResponse } from "@/types/execution";
+
 import { runGeminiText } from "@/lib/gemini-executor";
 
-function getIncomingEdges(nodeId: string, edges: WorkflowEdge[]) {
-    return edges.filter((edge) => edge.target === nodeId);
+/**
+ * Build adjacency and in-degree for topological sort
+ */
+function buildGraph(nodes: AppFlowNode[], edges: WorkflowEdge[]) {
+    const adj = new Map<string, string[]>();
+    const indegree = new Map<string, number>();
+
+    for (const node of nodes) {
+        adj.set(node.id, []);
+        indegree.set(node.id, 0);
+    }
+
+    for (const edge of edges) {
+        adj.get(edge.source)?.push(edge.target);
+        indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
+    }
+
+    return { adj, indegree };
 }
 
-function getNodeById(nodeId: string, nodes: AppFlowNode[]) {
-    return nodes.find((node) => node.id === nodeId);
+/**
+ * Kahn's algorithm (topological sort)
+ */
+function topologicalSort(nodes: AppFlowNode[], edges: WorkflowEdge[]) {
+    const { adj, indegree } = buildGraph(nodes, edges);
+
+    const queue: string[] = [];
+    const order: string[] = [];
+
+    for (const [id, deg] of indegree.entries()) {
+        if (deg === 0) queue.push(id);
+    }
+
+    while (queue.length) {
+        const current = queue.shift()!;
+        order.push(current);
+
+        for (const next of adj.get(current) || []) {
+            indegree.set(next, (indegree.get(next) || 0) - 1);
+            if (indegree.get(next) === 0) {
+                queue.push(next);
+            }
+        }
+    }
+
+    return order;
 }
 
-function getTextOutputFromNode(node: AppFlowNode | undefined): string {
-    if (!node) return "";
+/**
+ * Get value from upstream node based on handle
+ */
+function getNodeOutputValue(node: AppFlowNode, handle?: string | null): string {
+    if (!handle) return "";
 
-    if (node.type === "textNode") return node.data.content ?? node.data.output ?? "";
-    if (node.type === "promptNode") return node.data.content ?? node.data.output ?? "";
-    if (node.type === "llmNode") return node.data.output ?? "";
+    // TEXT
+    if (handle === "text-output" || handle === "prompt-output") {
+        if (node.type === "promptNode") {
+            return node.data.content ?? "";
+        }
+        if (node.type === "textNode") {
+            return node.data.content ?? "";
+        }
+        if (node.type === "llmNode") {
+            return node.data.output ?? "";
+        }
+        return node.data.output ?? "";
+    }
+
+    // IMAGE
+    if (handle === "image-output") {
+        if (node.type === "uploadImageNode") return node.data.imageUrl ?? "";
+        if (node.type === "imageGeneratorNode") return node.data.imageUrl ?? "";
+        if (node.type === "cropImageNode") return node.data.imageUrl ?? "";
+        if (node.type === "extractFrameNode") return node.data.outputImageUrl ?? "";
+        return "";
+    }
+
+    // VIDEO
+    if (handle === "video-output") {
+        if (node.type === "uploadVideoNode") return node.data.videoUrl ?? "";
+        return "";
+    }
 
     return "";
 }
 
-function getImageOutputFromNode(node: AppFlowNode | undefined): string {
-    if (!node) return "";
+/**
+ * Resolve inputs from edges
+ */
+function resolveInputs(
+    node: AppFlowNode,
+    edges: WorkflowEdge[],
+    nodeMap: Map<string, AppFlowNode>
+) {
+    const incoming = edges.filter((e) => e.target === node.id);
 
-    if (node.type === "uploadImageNode") return node.data.imageUrl ?? "";
-    if (node.type === "imageGeneratorNode") return node.data.imageUrl ?? "";
-    if (node.type === "extractFrameNode") return node.data.outputImageUrl ?? "";
+    let resolved: Record<string, string> = {};
 
-    return "";
+    for (const edge of incoming) {
+        const sourceNode = nodeMap.get(edge.source);
+        if (!sourceNode) continue;
+
+        const value = getNodeOutputValue(sourceNode, edge.sourceHandle);
+
+        if (!edge.targetHandle) continue;
+
+        resolved[edge.targetHandle] = value;
+    }
+
+    return resolved;
 }
 
-function getVideoOutputFromNode(node: AppFlowNode | undefined): string {
-    if (!node) return "";
+/**
+ * Execute one node
+ */
+async function executeNode(
+    node: AppFlowNode,
+    inputs: Record<string, string>
+): Promise<{ output?: string; extra?: any }> {
+    switch (node.type) {
+        case "llmNode": {
+            const output = await runGeminiText({
+                model: node.data.model,
+                systemPrompt: inputs["system_prompt"] ?? node.data.systemPrompt ?? "",
+                userMessage: inputs["user_message"] ?? node.data.userMessage ?? "",
+            });
 
-    if (node.type === "uploadVideoNode") return node.data.videoUrl ?? "";
+            return { output };
+        }
 
-    return "";
-}
+        const response = await fetch("http://localhost:3000/api/media/extract-frame", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ videoUrl, timestamp }),
+});
 
-async function extractFrameFromVideo(params: {
-    videoUrl: string;
-    timestamp?: string;
-}) {
-    const response = await fetch("http://localhost:3000/api/media/extract-frame", {
+       case "cropImageNode": {
+    const imageUrl = inputs["image_url"] ?? node.data.imageUrl;
+
+    if (!imageUrl) {
+        throw new Error("Missing image input");
+    }
+
+    const response = await fetch("http://localhost:3000/api/media/crop-image", {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            videoUrl: params.videoUrl,
-            timestamp: params.timestamp ?? "0",
+            imageUrl,
+            xPercent: node.data.xPercent ?? "0",
+            yPercent: node.data.yPercent ?? "0",
+            widthPercent: node.data.widthPercent ?? "100",
+            heightPercent: node.data.heightPercent ?? "100",
         }),
     });
 
     if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to extract frame");
+        throw new Error("Crop image failed");
     }
 
-    return response.json() as Promise<{ imageUrl: string }>;
-}
-
-async function executeSingleNode(
-    node: AppFlowNode,
-    nodes: AppFlowNode[],
-    edges: WorkflowEdge[]
-): Promise<ExecutionNodeResult> {
-    const startedAt = Date.now();
-
-    try {
-        const incoming = getIncomingEdges(node.id, edges);
-
-        if (node.type === "promptNode") {
-            return {
-                nodeId: node.id,
-                status: "success",
-                output: node.data.content ?? "",
-                durationMs: Date.now() - startedAt,
-            };
-        }
-
-        if (node.type === "textNode") {
-            return {
-                nodeId: node.id,
-                status: "success",
-                output: node.data.content ?? "",
-                durationMs: Date.now() - startedAt,
-            };
-        }
-
-        if (node.type === "uploadImageNode") {
-            return {
-                nodeId: node.id,
-                status: node.data.imageUrl ? "success" : "failed",
-                output: node.data.imageUrl,
-                error: node.data.imageUrl ? undefined : "No image uploaded",
-                durationMs: Date.now() - startedAt,
-            };
-        }
-
-        if (node.type === "uploadVideoNode") {
-            return {
-                nodeId: node.id,
-                status: node.data.videoUrl ? "success" : "failed",
-                output: node.data.videoUrl,
-                error: node.data.videoUrl ? undefined : "No video uploaded",
-                durationMs: Date.now() - startedAt,
-            };
-        }
-
-        if (node.type === "llmNode") {
-    const systemPromptEdge = incoming.find((e) => e.targetHandle === "system_prompt");
-    const userMessageEdge = incoming.find((e) => e.targetHandle === "user_message");
-
-    const systemPrompt = systemPromptEdge
-        ? getTextOutputFromNode(getNodeById(systemPromptEdge.source, nodes))
-        : node.data.systemPrompt ?? "";
-
-    const userMessage = userMessageEdge
-        ? getTextOutputFromNode(getNodeById(userMessageEdge.source, nodes))
-        : node.data.userMessage ?? "";
-
-    if (!userMessage.trim()) {
-        return {
-            nodeId: node.id,
-            status: "failed",
-            error: "User message is empty",
-            durationMs: Date.now() - startedAt,
-        };
-    }
-
-    const output = await runGeminiText({
-        model: node.data.model || "gemini-2.5-flash",
-        systemPrompt,
-        userMessage,
-    });
+    const data = await response.json();
 
     return {
-        nodeId: node.id,
-        status: "success",
-        output,
-        durationMs: Date.now() - startedAt,
-    };
-}
-
-        if (node.type === "imageGeneratorNode") {
-            const promptEdge = incoming.find((e) => e.targetHandle === "prompt");
-            const prompt = promptEdge
-                ? getTextOutputFromNode(getNodeById(promptEdge.source, nodes))
-                : node.data.prompt ?? "";
-
-            return {
-                nodeId: node.id,
-                status: "success",
-                output: `Generated image from prompt: ${prompt || "empty prompt"}`,
-                durationMs: Date.now() - startedAt,
-            };
-        }
-
-        if (node.type === "cropImageNode") {
-            const imageEdge = incoming.find((e) => e.targetHandle === "image_url");
-            const imageUrl = imageEdge
-                ? getImageOutputFromNode(getNodeById(imageEdge.source, nodes))
-                : node.data.imageUrl ?? "";
-
-            if (!imageUrl) {
-                return {
-                    nodeId: node.id,
-                    status: "failed",
-                    error: "No image connected",
-                    durationMs: Date.now() - startedAt,
-                };
-            }
-
-            return {
-                nodeId: node.id,
-                status: "success",
-                output: `Cropped image from source`,
-                durationMs: Date.now() - startedAt,
-            };
-        }
-
-        if (node.type === "extractFrameNode") {
-    const videoEdge = incoming.find((e) => e.targetHandle === "video_url");
-    const videoUrl = videoEdge
-        ? getVideoOutputFromNode(getNodeById(videoEdge.source, nodes))
-        : node.data.videoUrl ?? "";
-
-    if (!videoUrl) {
-        return {
-            nodeId: node.id,
-            status: "failed",
-            error: "No video connected",
-            durationMs: Date.now() - startedAt,
-        };
-    }
-
-    const result = await extractFrameFromVideo({
-        videoUrl,
-        timestamp: node.data.timestamp ?? "0",
-    });
-
-    return {
-        nodeId: node.id,
-        status: "success",
-        output: result.imageUrl,
-        durationMs: Date.now() - startedAt,
-    };
-}
-
-        return {
-            nodeId: node.id,
-            status: "failed",
-            error: "Unsupported node type",
-            durationMs: Date.now() - startedAt,
-        };
-    } catch (error) {
-        return {
-            nodeId: node.id,
-            status: "failed",
-            error: error instanceof Error ? error.message : "Execution failed",
-            durationMs: Date.now() - startedAt,
-        };
-    }
-}
-
-export async function executeWorkflowGraph(
-    nodes: AppFlowNode[],
-    edges: WorkflowEdge[]
-) {
-    if (hasCycle(nodes, edges)) {
-        return {
-            status: "failed" as const,
-            durationMs: 0,
-            nodeResults: nodes.map((node) => ({
-                nodeId: node.id,
-                status: "failed" as const,
-                error: "Execution blocked: graph contains a cycle.",
-                durationMs: 0,
-            })),
-            updatedNodes: nodes,
-        };
-    }
-
-    const startedAt = Date.now();
-    const orderedNodes = getExecutionOrder(nodes, edges);
-
-    const nodeResults: ExecutionNodeResult[] = [];
-    let updatedNodes = [...nodes];
-
-    for (const node of orderedNodes) {
-        const result = await executeSingleNode(node, updatedNodes, edges);
-        nodeResults.push(result);
-
-        updatedNodes = updatedNodes.map((n) => {
-            if (n.id !== result.nodeId) return n;
-
-            if (n.type === "llmNode") {
-                return {
-                    ...n,
-                    data: {
-                        ...n.data,
-                        output: result.output,
-                    },
-                };
-            }
-
-            if (n.type === "imageGeneratorNode") {
-                return {
-                    ...n,
-                    data: {
-                        ...n.data,
-                        imageUrl:
-                            result.status === "success"
-                                ? "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1000&auto=format&fit=crop"
-                                : n.data.imageUrl,
-                        output: result.output,
-                    },
-                };
-            }
-
-            if (n.type === "extractFrameNode") {
-    return {
-        ...n,
-        data: {
-            ...n.data,
-            outputImageUrl: result.status === "success" ? result.output : "",
-            output: result.output,
+        extra: {
+            imageUrl: data.imageUrl,
         },
     };
 }
-
+        case "imageGeneratorNode": {
+            // placeholder for now
             return {
-                ...n,
-                data: {
-                    ...n.data,
-                    output: result.output,
+                extra: {
+                    imageUrl: node.data.imageUrl,
                 },
             };
-        });
+        }
+
+        default:
+            return {};
+    }
+}
+
+/**
+ * Main executor
+ */
+export async function executeWorkflowGraph(
+    nodes: AppFlowNode[],
+    edges: WorkflowEdge[]
+): Promise<ExecutionResponse> {
+    const start = Date.now();
+
+    const nodeMap = new Map<string, AppFlowNode>();
+    for (const n of nodes) nodeMap.set(n.id, { ...n });
+
+    const order = topologicalSort(nodes, edges);
+
+    const nodeResults: ExecutionNodeResult[] = [];
+
+    for (const nodeId of order) {
+        const node = nodeMap.get(nodeId);
+        if (!node) continue;
+
+        const nodeStart = Date.now();
+
+        try {
+            const inputs = resolveInputs(node, edges, nodeMap);
+
+            const result = await executeNode(node, inputs);
+
+            const updatedNode = {
+                ...node,
+                data: {
+                    ...node.data,
+                    ...(result.output !== undefined ? { output: result.output } : {}),
+                    ...(result.extra ?? {}),
+                },
+            };
+
+            nodeMap.set(nodeId, updatedNode);
+
+            nodeResults.push({
+                nodeId,
+                status: "success",
+                output: result.output,
+                durationMs: Date.now() - nodeStart,
+            });
+        } catch (error) {
+            nodeResults.push({
+                nodeId,
+                status: "failed",
+                error: error instanceof Error ? error.message : "Unknown error",
+                durationMs: Date.now() - nodeStart,
+            });
+        }
     }
 
-    const statuses = nodeResults.map((r) => r.status);
-    const finalStatus =
-        statuses.every((s) => s === "success")
-            ? "success"
-            : statuses.every((s) => s === "failed")
-            ? "failed"
-            : "partial";
+    const updatedNodes = Array.from(nodeMap.values());
+
+    const durationMs = Date.now() - start;
 
     return {
-        status: finalStatus as "success" | "failed" | "partial",
-        durationMs: Date.now() - startedAt,
+        status: "success",
+        durationMs,
         nodeResults,
         updatedNodes,
     };

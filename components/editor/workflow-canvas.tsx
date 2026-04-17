@@ -129,84 +129,83 @@ export function WorkflowCanvas() {
                 }
 
                 if (node.type === "uploadImageNode") {
-    return {
-        ...node,
-        data: {
-            ...node.data,
-            onUpload: async (file: File) => {
-                const formData = new FormData();
-                formData.append("file", file);
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            onUpload: async (file: File) => {
+                                const formData = new FormData();
+                                formData.append("file", file);
 
-                const response = await fetch("/api/uploads", {
-                    method: "POST",
-                    body: formData,
-                });
+                                const response = await fetch("/api/uploads", {
+                                    method: "POST",
+                                    body: formData,
+                                });
 
-                if (!response.ok) {
-                    throw new Error("Image upload failed");
+                                if (!response.ok) {
+                                    throw new Error("Image upload failed");
+                                }
+
+                                const result = await response.json();
+
+                                updateNodeData(node.id, (data) => ({
+                                    ...data,
+                                    imageUrl: result.url,
+                                }));
+                            },
+                        },
+                    };
                 }
 
-                const result = await response.json();
+                if (node.type === "uploadVideoNode") {
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            onUpload: async (file: File) => {
+                                const formData = new FormData();
+                                formData.append("file", file);
 
-               updateNodeData(node.id, (data) => ({
-    ...data,
-    imageUrl: result.url,
-}));
-            },
-        },
-    };
-}
+                                const response = await fetch("/api/uploads", {
+                                    method: "POST",
+                                    body: formData,
+                                });
 
-if (node.type === "uploadVideoNode") {
-    return {
-        ...node,
-        data: {
-            ...node.data,
-            onUpload: async (file: File) => {
-                const formData = new FormData();
-                formData.append("file", file);
+                                if (!response.ok) {
+                                    throw new Error("Video upload failed");
+                                }
 
-                const response = await fetch("/api/uploads", {
-                    method: "POST",
-                    body: formData,
-                });
+                                const result = await response.json();
 
-                if (!response.ok) {
-                    throw new Error("Video upload failed");
+                                updateNodeData(node.id, (data) => ({
+                                    ...data,
+                                    videoUrl: result.url,
+                                }));
+                            },
+                        },
+                    };
                 }
 
-                const result = await response.json();
-
-                updateNodeData(node.id, (data) => ({
-                    ...data,
-                    videoUrl: result.url,
-                }));
-            },
-        },
-    };
-}
-
-if (node.type === "llmNode") {
-    return {
-        ...node,
-        data: {
-            ...node.data,
-            onSystemPromptChange: (value: string) => {
-                updateNodeData(node.id, (data) => ({
-                    ...data,
-                    systemPrompt: value,
-                }));
-            },
-            onUserMessageChange: (value: string) => {
-                updateNodeData(node.id, (data) => ({
-                    ...data,
-                    userMessage: value,
-                    output: `Mock output for: ${value}`,
-                }));
-            },
-        },
-    };
-}
+                if (node.type === "llmNode") {
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            onSystemPromptChange: (value: string) => {
+                                updateNodeData(node.id, (data) => ({
+                                    ...data,
+                                    systemPrompt: value,
+                                }));
+                            },
+                            onUserMessageChange: (value: string) => {
+                                updateNodeData(node.id, (data) => ({
+                                    ...data,
+                                    userMessage: value,
+                                }));
+                            },
+                        },
+                    };
+                }
 
                 if (node.type === "cropImageNode") {
                     return {
@@ -223,6 +222,21 @@ if (node.type === "llmNode") {
                     };
                 }
 
+                if (node.type === "imageGeneratorNode") {
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            onPromptChange: (value: string) => {
+                                updateNodeData(node.id, (data) => ({
+                                    ...data,
+                                    prompt: value,
+                                }));
+                            },
+                        },
+                    };
+                }
+
                 if (node.type === "extractFrameNode") {
                     return {
                         ...node,
@@ -232,7 +246,6 @@ if (node.type === "llmNode") {
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     timestamp: value,
-                                    outputImageUrl: "mock-frame-ready",
                                 }));
                             },
                         },
@@ -422,17 +435,17 @@ if (node.type === "llmNode") {
     }, [nodes, attachNodeActions, getIncomingEdge, getTextFromSourceNode]);
 
     const onNodesChange = useCallback(
-    (changes: NodeChange<AppFlowNode>[]) => {
-        const next = applyNodeChanges(changes, nodes) as AppFlowNode[];
-        setNodes(
-            next.map((node) => ({
-                ...node,
-                dragHandle: ".node-drag-handle",
-            }))
-        );
-    },
-    [nodes, setNodes]
-);
+        (changes: NodeChange<AppFlowNode>[]) => {
+            const next = applyNodeChanges(changes, nodes) as AppFlowNode[];
+            setNodes(
+                next.map((node) => ({
+                    ...node,
+                    dragHandle: ".node-drag-handle",
+                }))
+            );
+        },
+        [nodes, setNodes]
+    );
 
     const onEdgesChange = useCallback(
         (changes: EdgeChange<WorkflowEdge>[]) => {
