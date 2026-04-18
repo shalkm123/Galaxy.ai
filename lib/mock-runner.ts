@@ -26,6 +26,7 @@ export function createInitialWorkflowRun(nodes: AppFlowNode[]): WorkflowRun {
         status: "running",
         durationMs: 0,
         scope: "full",
+        finishedAt: undefined,
         nodeRuns: createInitialNodeRuns(nodes),
     };
 }

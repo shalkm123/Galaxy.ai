@@ -117,8 +117,8 @@ export function DashboardContent() {
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
                                 className={`rounded-lg px-3.5 py-1.5 text-[13px] transition ${activeTab === tab
-                                        ? "bg-white/10 font-medium text-white"
-                                        : "text-white/55 hover:bg-white/5 hover:text-white"
+                                    ? "bg-white/10 font-medium text-white"
+                                    : "text-white/55 hover:bg-white/5 hover:text-white"
                                     }`}
                             >
                                 {tab}

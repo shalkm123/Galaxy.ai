@@ -13,9 +13,16 @@ import {
 } from "@/lib/mock-runner";
 import { serializeWorkflow } from "@/lib/workflow-serializer";
 
-import type { WorkflowRun } from "@/types/run-history";
+import type { WorkflowRun, NodeRunStatus } from "@/types/run-history";
 import type { PersistedWorkflow } from "@/types/persisted-workflow";
 import type { PersistedWorkflowRun } from "@/types/persisted-run";
+
+function toNodeRunStatus(status?: NodeRuntimeStatus): NodeRunStatus {
+    if (status === "success") return "success";
+    if (status === "failed") return "failed";
+    if (status === "running") return "running";
+    return "pending";
+}
 
 export type EditorTemplate = "templates" | "empty" | "image-generator";
 
@@ -57,7 +64,7 @@ type EditorStore = {
     }) => void;
 
     loadRuns: (runs: WorkflowRun[]) => void;
-    persistLatestRun: () => Promise<void>;
+    persistRun: (run: WorkflowRun) => Promise<void>;
     fetchRunsForWorkflow: (workflowId: string) => Promise<void>;
 
     updateNodeData: (
@@ -72,6 +79,7 @@ type EditorStore = {
     ) => void;
 
     selectRun: (runId: string | null) => void;
+    setSelectedRunId: (runId: string | null) => void;
     clearRuns: () => void;
 
     runWorkflow: () => Promise<void>;
@@ -102,7 +110,7 @@ function mapPersistedRunToWorkflowRun(run: PersistedWorkflowRun): WorkflowRun {
         scope: run.scope,
         durationMs: run.durationMs,
         createdAt: run.createdAt,
-        finishedAt: run.finishedAt,
+        finishedAt: run.finishedAt ?? undefined,
         nodeRuns: run.nodeRuns,
     };
 }
@@ -195,29 +203,34 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             selectedRunId: runs[0]?.id ?? null,
         }),
 
-    persistLatestRun: async () => {
-        const { workflowId, runs } = get();
+    persistRun: async (run) => {
+        const { workflowId } = get();
 
-        if (!workflowId || runs.length === 0) return;
+        if (!workflowId) return;
 
-        const latestRun = runs[0];
-        const isFinished = latestRun.status !== "running";
+        const isFinished = run.status !== "running";
 
         try {
-            await fetch(`/api/workflows/${workflowId}/runs`, {
+            const response = await fetch(`/api/workflows/${workflowId}/runs`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
                     workflowId,
-                    status: latestRun.status,
-                    scope: latestRun.scope,
-                    durationMs: latestRun.durationMs,
-                    finishedAt: isFinished ? new Date().toISOString() : undefined,
-                    nodeRuns: latestRun.nodeRuns,
+                    status: run.status,
+                    scope: run.scope,
+                    durationMs: run.durationMs,
+                    finishedAt: isFinished
+                        ? run.finishedAt ?? new Date().toISOString()
+                        : undefined,
+                    nodeRuns: run.nodeRuns,
                 }),
             });
+
+            if (!response.ok) {
+                throw new Error("Failed to persist workflow run");
+            }
         } catch (error) {
             console.error(error);
         }
@@ -250,9 +263,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             nodes: state.nodes.map((node) =>
                 node.id === nodeId
                     ? {
-                          ...node,
-                          data: updater(node.data),
-                      }
+                        ...node,
+                        data: updater(node.data),
+                    }
                     : node
             ),
         })),
@@ -262,18 +275,19 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             nodes: state.nodes.map((node) =>
                 node.id === nodeId
                     ? {
-                          ...node,
-                          data: {
-                              ...node.data,
-                              runStatus: status,
-                              ...extra,
-                          },
-                      }
+                        ...node,
+                        data: {
+                            ...node.data,
+                            runStatus: status,
+                            ...extra,
+                        },
+                    }
                     : node
             ),
         })),
 
     selectRun: (runId) => set({ selectedRunId: runId }),
+    setSelectedRunId: (runId) => set({ selectedRunId: runId }),
 
     clearRuns: () =>
         set({
@@ -296,7 +310,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 ...node,
                 data: {
                     ...node.data,
-                    runStatus: "pending",
+                    runStatus: "pending" as const,
                     error: undefined,
                     durationMs: undefined,
                 },
@@ -323,7 +337,19 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
             const result = await response.json();
 
-            const mergedNodes = (result.updatedNodes as AppFlowNode[]).map((node) => {
+            const getNodeRuntimeStatus = (
+                status?: string
+            ): NodeRuntimeStatus => {
+                if (status === "success") return "success";
+                if (status === "failed") return "failed";
+                if (status === "running") return "running";
+                if (status === "pending") return "pending";
+                return "idle";
+            };
+
+            const mergedNodes: AppFlowNode[] = (
+                result.updatedNodes as AppFlowNode[]
+            ).map((node) => {
                 const execution = result.nodeResults.find(
                     (r: { nodeId: string }) => r.nodeId === node.id
                 );
@@ -332,12 +358,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                     ...node,
                     data: {
                         ...node.data,
-                        runStatus:
-                            execution?.status === "success"
-                                ? "success"
-                                : execution?.status === "failed"
-                                  ? "failed"
-                                  : "idle",
+                        runStatus: getNodeRuntimeStatus(execution?.status),
                         error: execution?.error,
                         durationMs: execution?.durationMs,
                         output:
@@ -350,17 +371,24 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
             const updatedNodeRuns = run.nodeRuns.map((nodeRun) => {
                 const execution = result.nodeResults.find(
-                    (r: { nodeId: string }) => r.nodeId === nodeRun.nodeId
+                    (r: {
+                        nodeId: string;
+                        status: "success" | "failed";
+                        output?: string;
+                        error?: string;
+                        durationMs?: number;
+                    }) => r.nodeId === nodeRun.nodeId
                 );
 
                 return execution
                     ? {
-                          ...nodeRun,
-                          status: execution.status,
-                          output: execution.output,
-                          error: execution.error,
-                          durationMs: execution.durationMs,
-                      }
+                        ...nodeRun,
+                        status: execution.status,
+                        output: execution.output,
+                        error: execution.error,
+                        durationMs: execution.durationMs,
+                        finishedAt: new Date().toISOString(),
+                    }
                     : nodeRun;
             });
 
@@ -368,6 +396,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 ...run,
                 durationMs: result.durationMs,
                 status: finalizeRunStatus(updatedNodeRuns),
+                finishedAt: new Date().toISOString(),
                 nodeRuns: updatedNodeRuns,
             };
 
@@ -378,7 +407,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 selectedRunId: run.id,
             }));
 
-            await get().persistLatestRun();
+            await get().persistRun(finishedRun);
         } catch (error) {
             console.error(error);
 
@@ -386,11 +415,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 ...nodeRun,
                 status: "failed" as const,
                 error: "Execution failed",
+                finishedAt: new Date().toISOString(),
             }));
 
             const failedRun: WorkflowRun = {
                 ...run,
                 status: finalizeRunStatus(failedNodeRuns),
+                finishedAt: new Date().toISOString(),
                 nodeRuns: failedNodeRuns,
             };
 
@@ -400,7 +431,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                     ...node,
                     data: {
                         ...node.data,
-                        runStatus: "failed",
+                        runStatus: "failed" as const,
                         error: "Execution failed",
                     },
                 })),
@@ -408,7 +439,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 selectedRunId: run.id,
             }));
 
-            await get().persistLatestRun();
+            await get().persistRun(failedRun);
         }
     },
 

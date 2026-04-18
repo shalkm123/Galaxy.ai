@@ -11,9 +11,11 @@ import {
     type Connection,
     type EdgeChange,
     type NodeChange,
+    type NodeTypes,
     type ReactFlowInstance,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
 
 import { PromptNode } from "@/components/editor/nodes/prompt-node";
 import { ImageGeneratorNode } from "@/components/editor/nodes/image-generator-node";
@@ -39,11 +41,10 @@ import type {
     CropImageFlowNode,
     ExtractFrameFlowNode,
     ImageGeneratorFlowNode,
-    LlmFlowNode,
     WorkflowEdge,
 } from "@/types/workflow";
 
-const nodeTypes = {
+const nodeTypes: NodeTypes = {
     promptNode: PromptNode,
     imageGeneratorNode: ImageGeneratorNode,
     textNode: TextNode,
@@ -71,6 +72,8 @@ type AddableNodeType =
     | "cropImageNode"
     | "extractFrameNode";
 
+type PaneMouseEvent = MouseEvent | React.MouseEvent<Element, MouseEvent>;
+
 function withDragHandle(nodes: AppFlowNode[]): AppFlowNode[] {
     return nodes.map((node) => ({
         ...node,
@@ -84,15 +87,14 @@ export function WorkflowCanvas() {
     const edges = useEditorStore((state) => state.edges);
     const setNodes = useEditorStore((state) => state.setNodes);
     const setEdges = useEditorStore((state) => state.setEdges);
-    const resetWorkflow = useEditorStore((state) => state.resetWorkflow);
     const updateNodeData = useEditorStore((state) => state.updateNodeData);
 
     const [picker, setPicker] = useState<PickerState>(null);
 
-    const reactFlowRef =
-        useRef<ReactFlowInstance<AppFlowNode, WorkflowEdge> | null>(null);
+    const reactFlowRef = useRef<ReactFlowInstance<AppFlowNode, WorkflowEdge> | null>(
+        null
+    );
     const canvasRef = useRef<HTMLDivElement | null>(null);
-
     const initializedTemplateRef = useRef<string | null>(null);
 
     const attachNodeActions = useCallback(
@@ -222,21 +224,6 @@ export function WorkflowCanvas() {
                     };
                 }
 
-                if (node.type === "imageGeneratorNode") {
-                    return {
-                        ...node,
-                        data: {
-                            ...node.data,
-                            onPromptChange: (value: string) => {
-                                updateNodeData(node.id, (data) => ({
-                                    ...data,
-                                    prompt: value,
-                                }));
-                            },
-                        },
-                    };
-                }
-
                 if (node.type === "extractFrameNode") {
                     return {
                         ...node,
@@ -252,6 +239,21 @@ export function WorkflowCanvas() {
                     };
                 }
 
+                if (node.type === "imageGeneratorNode") {
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            onPromptChange: (value: string) => {
+                                updateNodeData(node.id, (data) => ({
+                                    ...data,
+                                    prompt: value,
+                                }));
+                            },
+                        },
+                    };
+                }
+
                 return node;
             });
 
@@ -261,188 +263,27 @@ export function WorkflowCanvas() {
     );
 
     useEffect(() => {
-        if (template === "templates") {
-            initializedTemplateRef.current = null;
+        if (template === "templates") return;
+        if (initializedTemplateRef.current === template) return;
+        if (nodes.length > 0 || edges.length > 0) return;
+
+        initializedTemplateRef.current = template;
+
+        if (template === "image-generator") {
+            const workflow = getImageGeneratorWorkflow();
+            setNodes(attachNodeActions(workflow.nodes as AppFlowNode[]));
+            setEdges(workflow.edges as WorkflowEdge[]);
             return;
         }
 
-        if (nodes.length > 0 || edges.length > 0) return;
-        if (initializedTemplateRef.current === template) return;
-
-        const next =
-            template === "image-generator"
-                ? getImageGeneratorWorkflow()
-                : getEmptyWorkflow();
-
-        initializedTemplateRef.current = template;
-        resetWorkflow(attachNodeActions(next.nodes), next.edges);
-    }, [template, nodes.length, edges.length, resetWorkflow, attachNodeActions]);
-
-    const openPicker = useCallback((clientX: number, clientY: number) => {
-        if (!reactFlowRef.current) return;
-
-        const flowPosition = reactFlowRef.current.screenToFlowPosition({
-            x: clientX,
-            y: clientY,
-        });
-
-        setPicker({
-            x: clientX,
-            y: clientY,
-            flowX: flowPosition.x,
-            flowY: flowPosition.y,
-        });
-    }, []);
-
-    const openPickerAtCanvasCenter = useCallback(() => {
-        const bounds = canvasRef.current?.getBoundingClientRect();
-        if (!bounds) return;
-
-        openPicker(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
-    }, [openPicker]);
-
-    useEffect(() => {
-        const handleAddNodeEvent = () => {
-            openPickerAtCanvasCenter();
-        };
-
-        window.addEventListener("editor:add-node", handleAddNodeEvent);
-        return () => {
-            window.removeEventListener("editor:add-node", handleAddNodeEvent);
-        };
-    }, [openPickerAtCanvasCenter]);
-
-    const getNodeById = useCallback(
-        (id: string) => nodes.find((node) => node.id === id),
-        [nodes]
-    );
-
-    const getTextFromSourceNode = useCallback(
-        (nodeId: string) => {
-            const sourceNode = getNodeById(nodeId);
-            if (!sourceNode) return "";
-
-            if (sourceNode.type === "textNode") return sourceNode.data.content || "";
-            if (sourceNode.type === "promptNode") return sourceNode.data.content || "";
-            if (sourceNode.type === "llmNode") return sourceNode.data.output || "";
-
-            return "";
-        },
-        [getNodeById]
-    );
-
-    const getIncomingEdge = useCallback(
-        (targetNodeId: string, targetHandle: string) => {
-            return edges.find(
-                (edge) =>
-                    edge.target === targetNodeId && edge.targetHandle === targetHandle
-            );
-        },
-        [edges]
-    );
-
-    const isValidConnection = useCallback(
-        (connection: Connection | WorkflowEdge) => {
-            const sourceHandle = connection.sourceHandle ?? null;
-            const targetHandle = connection.targetHandle ?? null;
-
-            if (!connection.source || !connection.target) return false;
-            if (connection.source === connection.target) return false;
-            if (!isConnectionAllowed(sourceHandle, targetHandle)) return false;
-
-            const candidateEdge: WorkflowEdge = {
-                id: `preview-${connection.source}-${connection.sourceHandle ?? "none"}-${connection.target}-${connection.targetHandle ?? "none"}`,
-                source: connection.source,
-                target: connection.target,
-                sourceHandle: connection.sourceHandle,
-                targetHandle: connection.targetHandle,
-            };
-
-            return !wouldCreateCycle(nodes, edges, candidateEdge);
-        },
-        [nodes, edges]
-    );
-
-    const derivedNodes = useMemo<AppFlowNode[]>(() => {
-        const mapped = nodes.map((node) => {
-            if (node.type === "llmNode") {
-                const systemPromptEdge = getIncomingEdge(node.id, "system_prompt");
-                const userMessageEdge = getIncomingEdge(node.id, "user_message");
-                const imagesEdge = getIncomingEdge(node.id, "images");
-
-                return {
-                    ...node,
-                    data: {
-                        ...node.data,
-                        resolvedSystemPrompt: systemPromptEdge
-                            ? getTextFromSourceNode(systemPromptEdge.source)
-                            : node.data.systemPrompt,
-                        resolvedUserMessage: userMessageEdge
-                            ? getTextFromSourceNode(userMessageEdge.source)
-                            : node.data.userMessage,
-                        systemPromptConnected: !!systemPromptEdge,
-                        userMessageConnected: !!userMessageEdge,
-                        imagesConnected: !!imagesEdge,
-                    },
-                } as LlmFlowNode;
-            }
-
-            if (node.type === "imageGeneratorNode") {
-                const promptEdge = getIncomingEdge(node.id, "prompt");
-                const imagePromptEdge = getIncomingEdge(node.id, "imagePrompt");
-
-                return {
-                    ...node,
-                    data: {
-                        ...node.data,
-                        resolvedPrompt: promptEdge
-                            ? getTextFromSourceNode(promptEdge.source)
-                            : node.data.prompt,
-                        promptConnected: !!promptEdge,
-                        imagePromptConnected: !!imagePromptEdge,
-                    },
-                } as ImageGeneratorFlowNode;
-            }
-
-            if (node.type === "cropImageNode") {
-                const imageEdge = getIncomingEdge(node.id, "image_url");
-
-                return {
-                    ...node,
-                    data: {
-                        ...node.data,
-                        imageConnected: !!imageEdge,
-                    },
-                } as CropImageFlowNode;
-            }
-
-            if (node.type === "extractFrameNode") {
-                const videoEdge = getIncomingEdge(node.id, "video_url");
-
-                return {
-                    ...node,
-                    data: {
-                        ...node.data,
-                        videoConnected: !!videoEdge,
-                    },
-                } as ExtractFrameFlowNode;
-            }
-
-            return node;
-        });
-
-        return attachNodeActions(mapped);
-    }, [nodes, attachNodeActions, getIncomingEdge, getTextFromSourceNode]);
+        const workflow = getEmptyWorkflow();
+        setNodes(attachNodeActions(workflow.nodes as AppFlowNode[]));
+        setEdges(workflow.edges as WorkflowEdge[]);
+    }, [template, nodes.length, edges.length, setNodes, setEdges, attachNodeActions]);
 
     const onNodesChange = useCallback(
         (changes: NodeChange<AppFlowNode>[]) => {
-            const next = applyNodeChanges(changes, nodes) as AppFlowNode[];
-            setNodes(
-                next.map((node) => ({
-                    ...node,
-                    dragHandle: ".node-drag-handle",
-                }))
-            );
+            setNodes(applyNodeChanges(changes, nodes) as AppFlowNode[]);
         },
         [nodes, setNodes]
     );
@@ -454,51 +295,307 @@ export function WorkflowCanvas() {
         [edges, setEdges]
     );
 
-    const onConnect = useCallback(
-        (params: Connection) => {
-            if (!params.source || !params.target) return;
-            if (params.source === params.target) return;
+    const isValidConnection = useCallback(
+        (connection: Connection | WorkflowEdge) => {
+            const source = connection.source;
+            const target = connection.target;
+            const sourceHandle = connection.sourceHandle;
+            const targetHandle = connection.targetHandle;
 
-            if (
-                !isConnectionAllowed(
-                    params.sourceHandle ?? null,
-                    params.targetHandle ?? null
-                )
-            ) {
-                return;
+            if (!source || !target) return false;
+            if (!sourceHandle || !targetHandle) return false;
+            if (source === target) return false;
+
+            if (!isConnectionAllowed(sourceHandle, targetHandle)) {
+                return false;
             }
 
-            const candidateEdge: WorkflowEdge = {
-                id: `e-${params.source}-${params.sourceHandle ?? "none"}-${params.target}-${params.targetHandle ?? "none"}`,
-                source: params.source,
-                target: params.target,
-                sourceHandle: params.sourceHandle,
-                targetHandle: params.targetHandle,
+            const nextEdge: WorkflowEdge = {
+                id: `edge-${source}-${sourceHandle}-${target}-${targetHandle}`,
+                source,
+                target,
+                sourceHandle,
+                targetHandle,
+            };
+
+            if (wouldCreateCycle(nodes, edges, nextEdge)) {
+                return false;
+            }
+
+            return true;
+        },
+        [nodes, edges]
+    );
+
+    const onConnect = useCallback(
+        (connection: Connection) => {
+            const source = connection.source;
+            const target = connection.target;
+            const sourceHandle = connection.sourceHandle;
+            const targetHandle = connection.targetHandle;
+
+            if (!source || !target || !sourceHandle || !targetHandle) return;
+
+            const nextEdge: WorkflowEdge = {
+                id: `edge-${source}-${sourceHandle}-${target}-${targetHandle}`,
+                source,
+                target,
+                sourceHandle,
+                targetHandle,
                 animated: true,
                 style: { stroke: "#c9a300", strokeWidth: 3 },
             };
 
-            if (wouldCreateCycle(nodes, edges, candidateEdge)) {
-                return;
-            }
+            if (!isValidConnection(nextEdge)) return;
 
-            setEdges(addEdge(candidateEdge, edges) as WorkflowEdge[]);
+            setEdges(addEdge(nextEdge, edges) as WorkflowEdge[]);
         },
-        [nodes, edges, setEdges]
+        [edges, setEdges, isValidConnection]
     );
 
-    const handlePaneContextMenu = useCallback(
-        (event: React.MouseEvent<Element, MouseEvent>) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openPicker(event.clientX, event.clientY);
-        },
-        [openPicker]
-    );
-
-    const handlePaneClick = useCallback(() => {
+    const handlePaneClick = useCallback((_event: PaneMouseEvent) => {
         setPicker(null);
     }, []);
+
+    const handlePaneContextMenu = useCallback((event: PaneMouseEvent) => {
+        event.preventDefault();
+
+        if (!canvasRef.current || !reactFlowRef.current) return;
+
+        const rect = canvasRef.current.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+
+        const flowPosition = reactFlowRef.current.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+        });
+
+        setPicker({
+            x,
+            y,
+            flowX: flowPosition.x,
+            flowY: flowPosition.y,
+        });
+    }, []);
+
+    const openPickerAtCanvasCenter = useCallback(() => {
+        if (!canvasRef.current || !reactFlowRef.current) return;
+
+        const rect = canvasRef.current.getBoundingClientRect();
+        const centerScreenX = rect.left + rect.width / 2;
+        const centerScreenY = rect.top + rect.height / 2;
+
+        const flowPosition = reactFlowRef.current.screenToFlowPosition({
+            x: centerScreenX,
+            y: centerScreenY,
+        });
+
+        setPicker({
+            x: rect.width / 2,
+            y: rect.height / 2,
+            flowX: flowPosition.x,
+            flowY: flowPosition.y,
+        });
+    }, []);
+
+    const derivedNodes: AppFlowNode[] = useMemo(() => {
+        const attachedNodes = attachNodeActions(nodes);
+
+        return attachedNodes.map((node): AppFlowNode => {
+            if (node.type === "promptNode" || node.type === "textNode") {
+                const incoming = edges.find(
+                    (edge) => edge.target === node.id && edge.targetHandle === "content"
+                );
+
+                const resolvedContent = incoming
+                    ? (() => {
+                        const sourceNode = attachedNodes.find(
+                            (candidate) => candidate.id === incoming.source
+                        );
+                        if (!sourceNode) return "";
+
+                        if (
+                            sourceNode.type === "promptNode" ||
+                            sourceNode.type === "textNode"
+                        ) {
+                            return sourceNode.data.content ?? "";
+                        }
+
+                        if (sourceNode.type === "llmNode") {
+                            return sourceNode.data.output ?? "";
+                        }
+
+                        return "";
+                    })()
+                    : undefined;
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        resolvedContent,
+                        contentConnected: Boolean(incoming),
+                    },
+                } as AppFlowNode;
+            }
+
+            if (node.type === "imageGeneratorNode") {
+                const promptEdge = edges.find(
+                    (edge) => edge.target === node.id && edge.targetHandle === "prompt"
+                );
+
+                const resolvedPrompt = promptEdge
+                    ? (() => {
+                        const sourceNode = attachedNodes.find(
+                            (candidate) => candidate.id === promptEdge.source
+                        );
+                        if (!sourceNode) return "";
+
+                        if (
+                            sourceNode.type === "promptNode" ||
+                            sourceNode.type === "textNode"
+                        ) {
+                            return sourceNode.data.content ?? "";
+                        }
+
+                        if (sourceNode.type === "llmNode") {
+                            return sourceNode.data.output ?? "";
+                        }
+
+                        return "";
+                    })()
+                    : undefined;
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        resolvedPrompt,
+                        promptConnected: Boolean(promptEdge),
+                    },
+                } as AppFlowNode;
+            }
+
+            if (node.type === "llmNode") {
+                const systemPromptEdge = edges.find(
+                    (edge) =>
+                        edge.target === node.id && edge.targetHandle === "system_prompt"
+                );
+                const userMessageEdge = edges.find(
+                    (edge) =>
+                        edge.target === node.id && edge.targetHandle === "user_message"
+                );
+                const imagesEdge = edges.find(
+                    (edge) => edge.target === node.id && edge.targetHandle === "images"
+                );
+
+                const resolveTextFromEdge = (edge?: WorkflowEdge) => {
+                    if (!edge) return undefined;
+
+                    const sourceNode = attachedNodes.find(
+                        (candidate) => candidate.id === edge.source
+                    );
+                    if (!sourceNode) return "";
+
+                    if (
+                        sourceNode.type === "promptNode" ||
+                        sourceNode.type === "textNode"
+                    ) {
+                        return sourceNode.data.content ?? "";
+                    }
+
+                    if (sourceNode.type === "llmNode") {
+                        return sourceNode.data.output ?? "";
+                    }
+
+                    return "";
+                };
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        resolvedSystemPrompt: resolveTextFromEdge(systemPromptEdge),
+                        resolvedUserMessage: resolveTextFromEdge(userMessageEdge),
+                        systemPromptConnected: Boolean(systemPromptEdge),
+                        userMessageConnected: Boolean(userMessageEdge),
+                        imagesConnected: Boolean(imagesEdge),
+                    },
+                } as AppFlowNode;
+            }
+
+            if (node.type === "cropImageNode") {
+                const imageEdge = edges.find(
+                    (edge) => edge.target === node.id && edge.targetHandle === "image_url"
+                );
+
+                const resolvedImageUrl = imageEdge
+                    ? (() => {
+                        const sourceNode = attachedNodes.find(
+                            (candidate) => candidate.id === imageEdge.source
+                        );
+                        if (!sourceNode) return "";
+
+                        if (sourceNode.type === "uploadImageNode") {
+                            return sourceNode.data.imageUrl ?? "";
+                        }
+
+                        if (sourceNode.type === "imageGeneratorNode") {
+                            return sourceNode.data.imageUrl ?? "";
+                        }
+
+                        if (sourceNode.type === "extractFrameNode") {
+                            return sourceNode.data.outputImageUrl ?? "";
+                        }
+
+                        return "";
+                    })()
+                    : node.data.imageUrl;
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        imageUrl: resolvedImageUrl,
+                        imageConnected: Boolean(imageEdge),
+                    },
+                } as CropImageFlowNode;
+            }
+
+            if (node.type === "extractFrameNode") {
+                const videoEdge = edges.find(
+                    (edge) => edge.target === node.id && edge.targetHandle === "video_url"
+                );
+
+                const resolvedVideoUrl = videoEdge
+                    ? (() => {
+                        const sourceNode = attachedNodes.find(
+                            (candidate) => candidate.id === videoEdge.source
+                        );
+                        if (!sourceNode) return "";
+
+                        if (sourceNode.type === "uploadVideoNode") {
+                            return sourceNode.data.videoUrl ?? "";
+                        }
+
+                        return "";
+                    })()
+                    : node.data.videoUrl;
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        videoUrl: resolvedVideoUrl,
+                        videoConnected: Boolean(videoEdge),
+                    },
+                } as ExtractFrameFlowNode;
+            }
+
+            return node;
+        });
+    }, [nodes, edges, attachNodeActions]);
 
     const handleAddNode = useCallback(
         (type: AddableNodeType) => {
@@ -515,7 +612,7 @@ export function WorkflowCanvas() {
                     dragHandle: ".node-drag-handle",
                     data: {
                         label: "Prompt",
-                        content: "New prompt...",
+                        content: "",
                         runStatus: "idle",
                     },
                 };
@@ -526,8 +623,8 @@ export function WorkflowCanvas() {
                     position: { x: picker.flowX, y: picker.flowY },
                     dragHandle: ".node-drag-handle",
                     data: {
-                        label: "Text Node",
-                        content: "New text...",
+                        label: "Text",
+                        content: "",
                         runStatus: "idle",
                     },
                 };
@@ -609,12 +706,11 @@ export function WorkflowCanvas() {
                     data: {
                         label: "Krea-1",
                         model: "Krea1",
-                        prompt: "Prompt appears here...",
-                        imageUrl:
-                            "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1000&auto=format&fit=crop",
+                        prompt: "",
+                        imageUrl: "",
                         runStatus: "idle",
                     },
-                };
+                } as ImageGeneratorFlowNode;
             }
 
             setNodes([...nodes, ...attachNodeActions([newNode])]);
@@ -625,7 +721,7 @@ export function WorkflowCanvas() {
 
     return (
         <div ref={canvasRef} className="absolute inset-0">
-            <ReactFlow
+            <ReactFlow<AppFlowNode, WorkflowEdge>
                 nodes={derivedNodes}
                 edges={edges}
                 onInit={(instance) => {
@@ -685,7 +781,9 @@ export function WorkflowCanvas() {
             {nodes.length === 0 && !picker && template !== "templates" ? (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="pointer-events-auto text-center text-white/55">
-                        <div className="text-4xl font-semibold text-white/75">Add a node</div>
+                        <div className="text-4xl font-semibold text-white/75">
+                            Add a node
+                        </div>
                         <div className="mt-4 text-xl">
                             Right click, or use the button below
                         </div>

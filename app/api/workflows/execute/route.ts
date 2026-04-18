@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { executeWorkflowGraph } from "@/lib/node-execution";
+import { getBaseUrl } from "@/lib/get-base-url";
 import type { ExecutionRequest } from "@/types/execution";
 
 export async function POST(req: Request) {
@@ -11,8 +12,9 @@ export async function POST(req: Request) {
     }
 
     const body = (await req.json()) as ExecutionRequest;
+    const baseUrl = await getBaseUrl();
 
-    const result = await executeWorkflowGraph(body.nodes, body.edges);
+    const result = await executeWorkflowGraph(body.nodes, body.edges, baseUrl);
 
     return NextResponse.json(result);
 }

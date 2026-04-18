@@ -53,12 +53,17 @@ export function ImageGeneratorNode({ data }: NodeProps<ImageGeneratorFlowNode>) 
                         disabled={promptDisabled}
                         onChange={(e) => data.onPromptChange?.(e.target.value)}
                         placeholder="Describe the image you want to generate..."
-                        className={`nodrag nopan mt-2 min-h-[88px] w-full resize-none rounded-[10px] p-3 text-sm outline-none placeholder:text-white/35 ${
-                            promptDisabled
+                        className={`nodrag nopan mt-2 min-h-[88px] w-full resize-none rounded-[10px] p-3 text-sm outline-none placeholder:text-white/35 ${promptDisabled
                                 ? "bg-[#10141a] text-white/35"
                                 : "bg-[#14181f] text-white"
-                        }`}
+                            }`}
                     />
+
+                    {data.error ? (
+                        <div className="mt-3 rounded-[10px] border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+                            {data.error}
+                        </div>
+                    ) : null}
 
                     <div className="mt-3 text-[12px] text-white/35">› Settings</div>
                 </div>

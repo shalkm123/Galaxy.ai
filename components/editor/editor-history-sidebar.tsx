@@ -28,29 +28,25 @@ export function EditorHistorySidebar() {
 
     return (
         <div className="flex h-full flex-col">
-            {/* Header */}
             <div className="border-b border-white/10 px-4 py-3 text-sm font-medium text-white">
                 Run History
             </div>
 
-            {/* Empty State */}
             {runs.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center text-sm text-white/45">
                     No runs yet
                 </div>
             ) : (
                 <div className="flex flex-1 overflow-hidden">
-                    {/* Left: Run List */}
                     <div className="w-[140px] overflow-y-auto border-r border-white/10">
                         {runs.map((run) => (
                             <button
                                 key={run.id}
                                 onClick={() => setSelectedRunId(run.id)}
-                                className={`w-full px-3 py-3 text-left text-xs transition ${
-                                    run.id === selectedRunId
+                                className={`w-full px-3 py-3 text-left text-xs transition ${run.id === selectedRunId
                                         ? "bg-white/10 text-white"
                                         : "text-white/60 hover:bg-white/5"
-                                }`}
+                                    }`}
                             >
                                 <div className={`font-medium ${getStatusColor(run.status)}`}>
                                     {run.status.toUpperCase()}
@@ -67,7 +63,6 @@ export function EditorHistorySidebar() {
                         ))}
                     </div>
 
-                    {/* Right: Run Details */}
                     <div className="flex-1 overflow-y-auto px-4 py-3">
                         {!selectedRun ? (
                             <div className="text-sm text-white/45">
@@ -75,7 +70,6 @@ export function EditorHistorySidebar() {
                             </div>
                         ) : (
                             <>
-                                {/* Run Info */}
                                 <div className="mb-4">
                                     <div className="text-sm font-medium text-white">
                                         Run Details
@@ -93,7 +87,6 @@ export function EditorHistorySidebar() {
                                     </div>
                                 </div>
 
-                                {/* Node Runs */}
                                 <div className="space-y-2">
                                     {selectedRun.nodeRuns.map((nodeRun) => (
                                         <div

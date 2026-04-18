@@ -14,13 +14,12 @@ export type NodeRunDetail = {
     error?: string;
 };
 
-export type WorkflowRunScope = "full";
-
 export type WorkflowRun = {
     id: string;
     createdAt: string;
     status: WorkflowRunStatus;
+    scope: string;
     durationMs: number;
-    scope: WorkflowRunScope;
+    finishedAt?: string;
     nodeRuns: NodeRunDetail[];
 };

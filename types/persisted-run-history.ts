@@ -1,10 +1,12 @@
-export type PersistedNodeRun = {
-    id?: string;
-    workflowRunId?: string;
+export type NodeRunStatus = "pending" | "running" | "success" | "failed";
+
+export type WorkflowRunStatus = "running" | "success" | "failed" | "partial";
+
+export type NodeRunDetail = {
     nodeId: string;
     nodeLabel: string;
     nodeType: string;
-    status: "pending" | "running" | "success" | "failed";
+    status: NodeRunStatus;
     startedAt?: string;
     finishedAt?: string;
     durationMs?: number;
@@ -12,13 +14,12 @@ export type PersistedNodeRun = {
     error?: string;
 };
 
-export type PersistedWorkflowRun = {
-    id?: string;
-    workflowId: string;
-    status: "running" | "success" | "failed" | "partial";
-    scope: "full";
+export type WorkflowRun = {
+    id: string;
+    createdAt: string;
+    status: WorkflowRunStatus;
+    scope: string;
     durationMs: number;
-    createdAt?: string;
     finishedAt?: string;
-    nodeRuns: PersistedNodeRun[];
+    nodeRuns: NodeRunDetail[];
 };
