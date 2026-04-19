@@ -9,6 +9,7 @@ export function EditorTopbar() {
     const isRunning = useEditorStore((state) => state.isRunning);
     const workflowName = useEditorStore((state) => state.workflowName);
     const isSaving = useEditorStore((state) => state.isSaving);
+    const selectedNodeId = useEditorStore((state) => state.selectedNodeId);
 
     const setTemplate = useEditorStore((state) => state.setTemplate);
     const setNodes = useEditorStore((state) => state.setNodes);
@@ -17,6 +18,8 @@ export function EditorTopbar() {
     const clearSavedWorkflow = useEditorStore((state) => state.clearSavedWorkflow);
     const setWorkflowId = useEditorStore((state) => state.setWorkflowId);
     const setWorkflowName = useEditorStore((state) => state.setWorkflowName);
+    const setSelectedNodeId = useEditorStore((state) => state.setSelectedNodeId);
+    const setRunMode = useEditorStore((state) => state.setRunMode);
     const saveWorkflow = useEditorStore((state) => state.saveWorkflow);
 
     const handleNewWorkflow = () => {
@@ -26,6 +29,8 @@ export function EditorTopbar() {
         setEdges([]);
         setWorkflowId(null);
         setWorkflowName("Untitled Workflow");
+        setSelectedNodeId(null);
+        setRunMode("full");
         setTemplate("templates");
     };
 
@@ -43,9 +48,15 @@ export function EditorTopbar() {
                     {template === "templates"
                         ? "Choose a workflow template"
                         : template === "image-generator"
-                        ? "Image Generator"
-                        : "Empty Workflow"}
+                            ? "Image Generator"
+                            : "Empty Workflow"}
                 </div>
+
+                {selectedNodeId ? (
+                    <div className="hidden rounded-lg bg-blue-500/10 px-2 py-1 text-xs text-blue-300 md:block">
+                        Node Selected
+                    </div>
+                ) : null}
             </div>
 
             <div className="flex items-center gap-2">
@@ -62,6 +73,8 @@ export function EditorTopbar() {
                         setNodes([]);
                         setEdges([]);
                         setWorkflowId(null);
+                        setSelectedNodeId(null);
+                        setRunMode("full");
                         setTemplate("templates");
                     }}
                     className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white"
@@ -73,30 +86,35 @@ export function EditorTopbar() {
                 <button
                     onClick={saveWorkflow}
                     disabled={template === "templates" || isSaving}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${
-                        template === "templates" || isSaving
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${template === "templates" || isSaving
                             ? "cursor-not-allowed border-white/10 bg-white/5 text-white/35"
                             : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white"
-                    }`}
+                        }`}
                 >
                     <Save className="h-4 w-4" />
                     {isSaving ? "Saving..." : "Save"}
                 </button>
 
                 <div
-                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${
-                        isRunning
+                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${isRunning
                             ? "bg-blue-500/15 text-blue-300"
-                            : "bg-white/5 text-white/45"
-                    }`}
+                            : selectedNodeId
+                                ? "bg-blue-500/10 text-blue-300"
+                                : "bg-white/5 text-white/45"
+                        }`}
                 >
                     <Play className="h-4 w-4" />
-                    {isRunning ? "Running" : "Idle"}
+                    {isRunning
+                        ? selectedNodeId
+                            ? "Running Selected Node"
+                            : "Running Workflow"
+                        : selectedNodeId
+                            ? "Node Selected"
+                            : "Idle"}
                 </div>
 
                 <div className="ml-2 flex items-center">
                     <UserButton
-                        afterSignOutUrl="/login"
                         appearance={{
                             elements: {
                                 avatarBox: "h-9 w-9",

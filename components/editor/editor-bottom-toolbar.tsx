@@ -10,17 +10,39 @@ import {
     LayoutGrid,
     Link2,
 } from "lucide-react";
+import { useEditorStore } from "@/store/editor-store";
 
 export function EditorBottombar() {
+    const undo = useEditorStore((s) => s.undo);
+    const redo = useEditorStore((s) => s.redo);
+    const history = useEditorStore((s) => s.history);
+    const future = useEditorStore((s) => s.future);
+
     return (
         <>
             <div className="absolute bottom-5 left-4 z-20 flex items-center gap-1.5">
-                <button className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-white/10 bg-white/7 text-white/55 transition hover:bg-white/11 hover:text-white">
+                <button
+                    onClick={undo}
+                    disabled={history.length === 0}
+                    className={`flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-white/10 transition ${history.length === 0
+                            ? "cursor-not-allowed bg-white/5 text-white/25"
+                            : "bg-white/7 text-white/55 hover:bg-white/11 hover:text-white"
+                        }`}
+                >
                     <Undo2 className="h-3.5 w-3.5" />
                 </button>
-                <button className="flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-white/10 bg-white/7 text-white/55 transition hover:bg-white/11 hover:text-white">
+
+                <button
+                    onClick={redo}
+                    disabled={future.length === 0}
+                    className={`flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-white/10 transition ${future.length === 0
+                            ? "cursor-not-allowed bg-white/5 text-white/25"
+                            : "bg-white/7 text-white/55 hover:bg-white/11 hover:text-white"
+                        }`}
+                >
                     <Redo2 className="h-3.5 w-3.5" />
                 </button>
+
                 <button className="flex items-center gap-1.5 rounded-[9px] border border-white/10 bg-white/5 px-2.5 py-1.5 text-[12px] text-white/45 transition hover:text-white/75">
                     <kbd className="text-[11px]">⌘</kbd> Keyboard shortcuts
                 </button>
@@ -32,7 +54,6 @@ export function EditorBottombar() {
                         window.dispatchEvent(new CustomEvent("editor:add-node"));
                     }}
                     className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white/55 transition hover:bg-white/10 hover:text-white"
-                    title="Add node"
                 >
                     <Plus className="h-4 w-4" />
                 </button>

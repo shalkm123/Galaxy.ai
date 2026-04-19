@@ -85,9 +85,13 @@ export function WorkflowCanvas() {
     const template = useEditorStore((state) => state.template);
     const nodes = useEditorStore((state) => state.nodes);
     const edges = useEditorStore((state) => state.edges);
+    const selectedNodeId = useEditorStore((state) => state.selectedNodeId);
+
     const setNodes = useEditorStore((state) => state.setNodes);
     const setEdges = useEditorStore((state) => state.setEdges);
     const updateNodeData = useEditorStore((state) => state.updateNodeData);
+    const setSelectedNodeId = useEditorStore((state) => state.setSelectedNodeId);
+    const setRunMode = useEditorStore((state) => state.setRunMode);
 
     const [picker, setPicker] = useState<PickerState>(null);
 
@@ -137,7 +141,7 @@ export function WorkflowCanvas() {
                             ...node.data,
                             onUpload: async (file: File) => {
                                 const formData = new FormData();
-                                formData.append("file", file);
+                                formData.append("file", file, file.name);
 
                                 const response = await fetch("/api/uploads", {
                                     method: "POST",
@@ -145,7 +149,18 @@ export function WorkflowCanvas() {
                                 });
 
                                 if (!response.ok) {
-                                    throw new Error("Image upload failed");
+                                    let message = "Image upload failed";
+
+                                    try {
+                                        const errorData = await response.json();
+                                        message = errorData.message || message;
+                                    } catch {
+                                        try {
+                                            message = await response.text();
+                                        } catch { }
+                                    }
+
+                                    throw new Error(message);
                                 }
 
                                 const result = await response.json();
@@ -166,7 +181,7 @@ export function WorkflowCanvas() {
                             ...node.data,
                             onUpload: async (file: File) => {
                                 const formData = new FormData();
-                                formData.append("file", file);
+                                formData.append("file", file, file.name);
 
                                 const response = await fetch("/api/uploads", {
                                     method: "POST",
@@ -174,7 +189,18 @@ export function WorkflowCanvas() {
                                 });
 
                                 if (!response.ok) {
-                                    throw new Error("Video upload failed");
+                                    let message = "Video upload failed";
+
+                                    try {
+                                        const errorData = await response.json();
+                                        message = errorData.message || message;
+                                    } catch {
+                                        try {
+                                            message = await response.text();
+                                        } catch { }
+                                    }
+
+                                    throw new Error(message);
                                 }
 
                                 const result = await response.json();
@@ -355,7 +381,9 @@ export function WorkflowCanvas() {
 
     const handlePaneClick = useCallback((_event: PaneMouseEvent) => {
         setPicker(null);
-    }, []);
+        setSelectedNodeId(null);
+        setRunMode("full");
+    }, [setSelectedNodeId, setRunMode]);
 
     const handlePaneContextMenu = useCallback((event: PaneMouseEvent) => {
         event.preventDefault();
@@ -403,6 +431,11 @@ export function WorkflowCanvas() {
         const attachedNodes = attachNodeActions(nodes);
 
         return attachedNodes.map((node): AppFlowNode => {
+            const selectedClass =
+                node.id === selectedNodeId
+                    ? "ring-2 ring-blue-500 ring-offset-0"
+                    : undefined;
+
             if (node.type === "promptNode" || node.type === "textNode") {
                 const incoming = edges.find(
                     (edge) => edge.target === node.id && edge.targetHandle === "content"
@@ -432,6 +465,7 @@ export function WorkflowCanvas() {
 
                 return {
                     ...node,
+                    className: selectedClass,
                     data: {
                         ...node.data,
                         resolvedContent,
@@ -469,6 +503,7 @@ export function WorkflowCanvas() {
 
                 return {
                     ...node,
+                    className: selectedClass,
                     data: {
                         ...node.data,
                         resolvedPrompt,
@@ -514,6 +549,7 @@ export function WorkflowCanvas() {
 
                 return {
                     ...node,
+                    className: selectedClass,
                     data: {
                         ...node.data,
                         resolvedSystemPrompt: resolveTextFromEdge(systemPromptEdge),
@@ -555,6 +591,7 @@ export function WorkflowCanvas() {
 
                 return {
                     ...node,
+                    className: selectedClass,
                     data: {
                         ...node.data,
                         imageUrl: resolvedImageUrl,
@@ -585,6 +622,7 @@ export function WorkflowCanvas() {
 
                 return {
                     ...node,
+                    className: selectedClass,
                     data: {
                         ...node.data,
                         videoUrl: resolvedVideoUrl,
@@ -593,9 +631,12 @@ export function WorkflowCanvas() {
                 } as ExtractFrameFlowNode;
             }
 
-            return node;
+            return {
+                ...node,
+                className: selectedClass,
+            };
         });
-    }, [nodes, edges, attachNodeActions]);
+    }, [nodes, edges, attachNodeActions, selectedNodeId]);
 
     const handleAddNode = useCallback(
         (type: AddableNodeType) => {
@@ -732,6 +773,20 @@ export function WorkflowCanvas() {
                 onConnect={onConnect}
                 onPaneClick={handlePaneClick}
                 onPaneContextMenu={handlePaneContextMenu}
+                onNodeClick={(_event, node) => {
+                    setSelectedNodeId(node.id);
+                    setRunMode("single");
+                }}
+                onNodeContextMenu={(event, node) => {
+                    event.preventDefault();
+                    setSelectedNodeId(node.id);
+                    setRunMode("single");
+
+
+                    setTimeout(() => {
+                        useEditorStore.getState().runWorkflow();
+                    }, 0);
+                }}
                 isValidConnection={isValidConnection}
                 nodeTypes={nodeTypes}
                 fitView

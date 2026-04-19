@@ -4,6 +4,15 @@ import { mkdir } from "fs/promises";
 import path from "path";
 import { spawn } from "child_process";
 
+function isInternalExecutionAuthorized(req: Request) {
+    const providedKey = req.headers.get("x-internal-execution-key");
+    const expectedKey = process.env.INTERNAL_EXECUTION_KEY;
+
+    return Boolean(
+        expectedKey && providedKey && providedKey === expectedKey
+    );
+}
+
 function runFfmpeg(args: string[]) {
     return new Promise<void>((resolve, reject) => {
         const ffmpegPath =
@@ -26,8 +35,9 @@ function runFfmpeg(args: string[]) {
 
 export async function POST(req: Request) {
     const { userId } = await auth();
+    const isInternal = isInternalExecutionAuthorized(req);
 
-    if (!userId) {
+    if (!userId && !isInternal) {
         return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 

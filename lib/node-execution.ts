@@ -1,9 +1,34 @@
 import type { AppFlowNode, WorkflowEdge } from "@/types/workflow";
-import type { ExecutionResponse, ExecutionNodeResult } from "@/types/execution";
+import type {
+    ExecutionNodeResult,
+    ExecutionResponse,
+} from "@/types/execution";
 import { runGeminiText } from "@/lib/gemini-executor";
 
 function getNodeById(nodes: AppFlowNode[], nodeId: string) {
     return nodes.find((node) => node.id === nodeId);
+}
+
+function getUpstreamNodeIds(
+    targetNodeId: string,
+    edges: WorkflowEdge[]
+): Set<string> {
+    const visited = new Set<string>();
+    const stack = [targetNodeId];
+
+    while (stack.length > 0) {
+        const current = stack.pop()!;
+        if (visited.has(current)) continue;
+
+        visited.add(current);
+
+        const incomingEdges = edges.filter((edge) => edge.target === current);
+        for (const edge of incomingEdges) {
+            stack.push(edge.source);
+        }
+    }
+
+    return visited;
 }
 
 function topologicalSort(nodes: AppFlowNode[], edges: WorkflowEdge[]) {
@@ -53,7 +78,7 @@ function getSourceNodeOutput(sourceNode: AppFlowNode | undefined): string {
     if (!sourceNode) return "";
 
     if (sourceNode.type === "promptNode" || sourceNode.type === "textNode") {
-        return sourceNode.data.content ?? "";
+        return sourceNode.data.output ?? sourceNode.data.content ?? "";
     }
 
     if (sourceNode.type === "llmNode") {
@@ -120,19 +145,30 @@ function getExecutionOutput(
     return undefined;
 }
 
+function getInternalHeaders(internalExecutionKey: string) {
+    return {
+        "Content-Type": "application/json",
+        "x-internal-execution-key": internalExecutionKey,
+    };
+}
+
 async function executePromptNode(node: AppFlowNode) {
     if (node.type !== "promptNode") return {};
 
+    const output = node.data.content ?? "";
+
     return {
-        output: node.data.content ?? "",
+        output,
     };
 }
 
 async function executeTextNode(node: AppFlowNode) {
     if (node.type !== "textNode") return {};
 
+    const output = node.data.content ?? "";
+
     return {
-        output: node.data.content ?? "",
+        output,
     };
 }
 
@@ -170,7 +206,8 @@ async function executeCropImageNode(
     node: AppFlowNode,
     nodes: AppFlowNode[],
     edges: WorkflowEdge[],
-    baseUrl: string
+    baseUrl: string,
+    internalExecutionKey: string
 ) {
     if (node.type !== "cropImageNode") return {};
 
@@ -181,9 +218,7 @@ async function executeCropImageNode(
 
     const response = await fetch(`${baseUrl}/api/media/crop-image`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
+        headers: getInternalHeaders(internalExecutionKey),
         body: JSON.stringify({
             imageUrl,
             xPercent: node.data.xPercent ?? "0",
@@ -193,14 +228,14 @@ async function executeCropImageNode(
         }),
     });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Crop image failed");
-    }
-
     const result = (await response.json()) as {
         imageUrl?: string;
+        message?: string;
     };
+
+    if (!response.ok) {
+        throw new Error(result.message || "Crop image failed");
+    }
 
     return {
         imageUrl: result.imageUrl ?? "",
@@ -211,7 +246,8 @@ async function executeExtractFrameNode(
     node: AppFlowNode,
     nodes: AppFlowNode[],
     edges: WorkflowEdge[],
-    baseUrl: string
+    baseUrl: string,
+    internalExecutionKey: string
 ) {
     if (node.type !== "extractFrameNode") return {};
 
@@ -222,23 +258,21 @@ async function executeExtractFrameNode(
 
     const response = await fetch(`${baseUrl}/api/media/extract-frame`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
+        headers: getInternalHeaders(internalExecutionKey),
         body: JSON.stringify({
             videoUrl,
             timestamp: node.data.timestamp ?? "0",
         }),
     });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Extract frame failed");
-    }
-
     const result = (await response.json()) as {
         imageUrl?: string;
+        message?: string;
     };
+
+    if (!response.ok) {
+        throw new Error(result.message || "Extract frame failed");
+    }
 
     return {
         videoUrl,
@@ -250,7 +284,8 @@ async function executeImageGeneratorNode(
     node: AppFlowNode,
     nodes: AppFlowNode[],
     edges: WorkflowEdge[],
-    baseUrl: string
+    baseUrl: string,
+    internalExecutionKey: string
 ) {
     if (node.type !== "imageGeneratorNode") return {};
 
@@ -261,23 +296,21 @@ async function executeImageGeneratorNode(
 
     const response = await fetch(`${baseUrl}/api/media/generate-image`, {
         method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
+        headers: getInternalHeaders(internalExecutionKey),
         body: JSON.stringify({
             prompt,
             model: node.data.model,
         }),
     });
 
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Image generation failed");
-    }
-
     const result = (await response.json()) as {
         imageUrl?: string;
+        message?: string;
     };
+
+    if (!response.ok) {
+        throw new Error(result.message || "Image generation failed");
+    }
 
     return {
         prompt,
@@ -289,19 +322,41 @@ async function executeNode(
     node: AppFlowNode,
     nodes: AppFlowNode[],
     edges: WorkflowEdge[],
-    baseUrl: string
+    baseUrl: string,
+    internalExecutionKey: string
 ): Promise<Partial<AppFlowNode["data"]>> {
     if (node.type === "promptNode") return executePromptNode(node);
     if (node.type === "textNode") return executeTextNode(node);
     if (node.type === "llmNode") return executeLlmNode(node, nodes, edges);
+
     if (node.type === "cropImageNode") {
-        return executeCropImageNode(node, nodes, edges, baseUrl);
+        return executeCropImageNode(
+            node,
+            nodes,
+            edges,
+            baseUrl,
+            internalExecutionKey
+        );
     }
+
     if (node.type === "extractFrameNode") {
-        return executeExtractFrameNode(node, nodes, edges, baseUrl);
+        return executeExtractFrameNode(
+            node,
+            nodes,
+            edges,
+            baseUrl,
+            internalExecutionKey
+        );
     }
+
     if (node.type === "imageGeneratorNode") {
-        return executeImageGeneratorNode(node, nodes, edges, baseUrl);
+        return executeImageGeneratorNode(
+            node,
+            nodes,
+            edges,
+            baseUrl,
+            internalExecutionKey
+        );
     }
 
     return {};
@@ -310,10 +365,28 @@ async function executeNode(
 export async function executeWorkflowGraph(
     nodes: AppFlowNode[],
     edges: WorkflowEdge[],
-    baseUrl: string
+    baseUrl: string,
+    internalExecutionKey: string,
+    options?: {
+        mode?: "full" | "single";
+        selectedNodeId?: string | null;
+    }
 ): Promise<ExecutionResponse> {
     const startedAt = Date.now();
-    const orderedNodes = topologicalSort(nodes, edges);
+
+    let executionNodes = nodes;
+    let executionEdges = edges;
+
+    if (options?.mode === "single" && options.selectedNodeId) {
+        const allowedIds = getUpstreamNodeIds(options.selectedNodeId, edges);
+
+        executionNodes = nodes.filter((node) => allowedIds.has(node.id));
+        executionEdges = edges.filter(
+            (edge) => allowedIds.has(edge.source) && allowedIds.has(edge.target)
+        );
+    }
+
+    const orderedNodes = topologicalSort(executionNodes, executionEdges);
 
     const updatedNodes: AppFlowNode[] = [...nodes];
     const nodeResults: ExecutionNodeResult[] = [];
@@ -337,8 +410,9 @@ export async function executeWorkflowGraph(
             const partial = await executeNode(
                 updatedNodes[currentNodeIndex],
                 updatedNodes,
-                edges,
-                baseUrl
+                executionEdges,
+                baseUrl,
+                internalExecutionKey
             );
 
             updatedNodes[currentNodeIndex] = {

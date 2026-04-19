@@ -25,8 +25,14 @@ function toNodeRunStatus(status?: NodeRuntimeStatus): NodeRunStatus {
 }
 
 export type EditorTemplate = "templates" | "empty" | "image-generator";
+export type ExecutionMode = "full" | "single";
 
 const STORAGE_KEY = "galaxy-editor-workflow-v1";
+
+type HistoryState = {
+    nodes: AppFlowNode[];
+    edges: WorkflowEdge[];
+};
 
 type EditorStore = {
     template: EditorTemplate;
@@ -38,6 +44,12 @@ type EditorStore = {
 
     runs: WorkflowRun[];
     selectedRunId: string | null;
+
+    selectedNodeId: string | null;
+    runMode: ExecutionMode;
+
+    history: HistoryState[];
+    future: HistoryState[];
 
     isRunning: boolean;
     isSaving: boolean;
@@ -53,6 +65,8 @@ type EditorStore = {
 
     setNodes: (nodes: AppFlowNode[]) => void;
     setEdges: (edges: WorkflowEdge[]) => void;
+    setNodesWithoutHistory: (nodes: AppFlowNode[]) => void;
+    setEdgesWithoutHistory: (edges: WorkflowEdge[]) => void;
     resetWorkflow: (nodes: AppFlowNode[], edges: WorkflowEdge[]) => void;
 
     loadWorkflow: (payload: {
@@ -80,7 +94,16 @@ type EditorStore = {
 
     selectRun: (runId: string | null) => void;
     setSelectedRunId: (runId: string | null) => void;
+
+    setSelectedNodeId: (id: string | null) => void;
+    setRunMode: (mode: ExecutionMode) => void;
+
     clearRuns: () => void;
+
+    pushToHistory: () => void;
+    undo: () => void;
+    redo: () => void;
+    clearHistory: () => void;
 
     runWorkflow: () => Promise<void>;
     saveWorkflow: () => Promise<void>;
@@ -115,6 +138,32 @@ function mapPersistedRunToWorkflowRun(run: PersistedWorkflowRun): WorkflowRun {
     };
 }
 
+function stripNodeCallbacks(nodes: AppFlowNode[]): AppFlowNode[] {
+    return nodes.map((node) => {
+        const data = { ...node.data } as Record<string, unknown>;
+
+        delete data.onChange;
+        delete data.onUpload;
+        delete data.onSystemPromptChange;
+        delete data.onUserMessageChange;
+        delete data.onFieldChange;
+        delete data.onTimestampChange;
+        delete data.onPromptChange;
+
+        return {
+            ...node,
+            data: data as AppFlowNode["data"],
+        };
+    });
+}
+
+function cloneHistoryState(nodes: AppFlowNode[], edges: WorkflowEdge[]): HistoryState {
+    return {
+        nodes: structuredClone(stripNodeCallbacks(nodes)),
+        edges: structuredClone(edges),
+    };
+}
+
 export const useEditorStore = create<EditorStore>((set, get) => ({
     template: "templates",
     workflowId: null,
@@ -125,6 +174,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     runs: [],
     selectedRunId: null,
+
+    selectedNodeId: null,
+    runMode: "full",
+
+    history: [],
+    future: [],
 
     isRunning: false,
     isSaving: false,
@@ -138,6 +193,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             edges: [],
             runs: [],
             selectedRunId: null,
+            selectedNodeId: null,
+            runMode: "full",
+            history: [],
+            future: [],
         }),
 
     loadWorkflowById: async (workflowId) => {
@@ -161,8 +220,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 edges: workflow.edges,
                 runs: [],
                 selectedRunId: null,
+                selectedNodeId: null,
+                runMode: "full",
                 hasHydrated: true,
                 isLoadingWorkflow: false,
+                history: [],
+                future: [],
             });
 
             await get().fetchRunsForWorkflow(workflowId);
@@ -176,13 +239,70 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     setWorkflowId: (workflowId) => set({ workflowId }),
     setWorkflowName: (workflowName) => set({ workflowName }),
 
-    setNodes: (nodes) => set({ nodes }),
-    setEdges: (edges) => set({ edges }),
+    pushToHistory: () => {
+        const { nodes, edges, history } = get();
+
+        set({
+            history: [...history, cloneHistoryState(nodes, edges)],
+            future: [],
+        });
+    },
+
+    undo: () => {
+        const { history, future, nodes, edges } = get();
+
+        if (history.length === 0) return;
+
+        const previous = history[history.length - 1];
+        const newHistory = history.slice(0, -1);
+
+        set({
+            nodes: previous.nodes,
+            edges: previous.edges,
+            history: newHistory,
+            future: [cloneHistoryState(nodes, edges), ...future],
+        });
+    },
+
+    redo: () => {
+        const { history, future, nodes, edges } = get();
+
+        if (future.length === 0) return;
+
+        const next = future[0];
+        const newFuture = future.slice(1);
+
+        set({
+            nodes: next.nodes,
+            edges: next.edges,
+            history: [...history, cloneHistoryState(nodes, edges)],
+            future: newFuture,
+        });
+    },
+
+    clearHistory: () => set({ history: [], future: [] }),
+
+    setNodesWithoutHistory: (nodes) => set({ nodes }),
+    setEdgesWithoutHistory: (edges) => set({ edges }),
+
+    setNodes: (nodes) => {
+        get().pushToHistory();
+        set({ nodes });
+    },
+
+    setEdges: (edges) => {
+        get().pushToHistory();
+        set({ edges });
+    },
 
     resetWorkflow: (nodes, edges) =>
         set({
             nodes: sanitizeNodesForEditor(nodes),
             edges,
+            selectedNodeId: null,
+            runMode: "full",
+            history: [],
+            future: [],
         }),
 
     loadWorkflow: (payload) =>
@@ -194,7 +314,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             edges: payload.edges,
             runs: [],
             selectedRunId: null,
+            selectedNodeId: null,
+            runMode: "full",
             isLoadingWorkflow: false,
+            history: [],
+            future: [],
         }),
 
     loadRuns: (runs) =>
@@ -289,6 +413,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     selectRun: (runId) => set({ selectedRunId: runId }),
     setSelectedRunId: (runId) => set({ selectedRunId: runId }),
 
+    setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+    setRunMode: (mode) => set({ runMode: mode }),
+
     clearRuns: () =>
         set({
             runs: [],
@@ -296,7 +423,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }),
 
     runWorkflow: async () => {
-        const { nodes, edges, isRunning, template, workflowId } = get();
+        const {
+            nodes,
+            edges,
+            isRunning,
+            template,
+            workflowId,
+            runMode,
+            selectedNodeId,
+        } = get();
 
         if (template === "templates" || isRunning || nodes.length === 0) return;
 
@@ -328,6 +463,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                     template,
                     nodes,
                     edges,
+                    mode: runMode ?? "full",
+                    selectedNodeId: selectedNodeId ?? null,
                 }),
             });
 
@@ -389,7 +526,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                         durationMs: execution.durationMs,
                         finishedAt: new Date().toISOString(),
                     }
-                    : nodeRun;
+                    : {
+                        ...nodeRun,
+                        status:
+                            runMode === "single" && selectedNodeId && nodeRun.nodeId !== selectedNodeId
+                                ? toNodeRunStatus(
+                                    nodes.find((n) => n.id === nodeRun.nodeId)?.data.runStatus
+                                )
+                                : nodeRun.status,
+                    };
             });
 
             const finishedRun: WorkflowRun = {
@@ -502,7 +647,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     saveToLocalStorage: () => {
         if (typeof window === "undefined") return;
 
-        const { template, workflowId, workflowName, nodes, edges } = get();
+        const {
+            template,
+            workflowId,
+            workflowName,
+            nodes,
+            edges,
+            selectedNodeId,
+            runMode,
+        } = get();
 
         if (template === "templates") return;
 
@@ -514,6 +667,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 workflowName,
                 nodes,
                 edges,
+                selectedNodeId,
+                runMode,
             })
         );
     },
@@ -531,6 +686,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 workflowName?: string;
                 nodes: AppFlowNode[];
                 edges: WorkflowEdge[];
+                selectedNodeId?: string | null;
+                runMode?: ExecutionMode;
             };
 
             set({
@@ -542,6 +699,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 workflowName: parsed.workflowName ?? "Untitled Workflow",
                 nodes: sanitizeNodesForEditor(parsed.nodes),
                 edges: parsed.edges,
+                selectedNodeId: parsed.selectedNodeId ?? null,
+                runMode: parsed.runMode ?? "full",
             });
 
             return true;

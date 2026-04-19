@@ -1,21 +1,31 @@
 "use client";
 
+import { Play } from "lucide-react";
 import { useEditorStore } from "@/store/editor-store";
 
 export function RunWorkflowButton() {
-    const isRunning = useEditorStore((state) => state.isRunning);
-    const runWorkflow = useEditorStore((state) => state.runWorkflow);
+    const runWorkflow = useEditorStore((s) => s.runWorkflow);
+    const isRunning = useEditorStore((s) => s.isRunning);
+    const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
 
     return (
         <button
             onClick={runWorkflow}
             disabled={isRunning}
-            className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition ${isRunning
-                    ? "cursor-not-allowed bg-blue-500/50"
-                    : "bg-[#1e7bff] hover:bg-[#1970ea]"
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition ${isRunning
+                    ? "cursor-not-allowed bg-blue-500/20 text-blue-300"
+                    : "bg-blue-500 text-white hover:bg-blue-600"
                 }`}
         >
-            {isRunning ? "Running..." : "Run Workflow"}
+            <Play className="h-4 w-4" />
+
+            {isRunning
+                ? selectedNodeId
+                    ? "Running Node..."
+                    : "Running Workflow..."
+                : selectedNodeId
+                    ? "Run Selected Node"
+                    : "Run Workflow"}
         </button>
     );
 }

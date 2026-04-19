@@ -3,10 +3,20 @@ import { auth } from "@clerk/nextjs/server";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 
+function isInternalExecutionAuthorized(req: Request) {
+    const providedKey = req.headers.get("x-internal-execution-key");
+    const expectedKey = process.env.INTERNAL_EXECUTION_KEY;
+
+    return Boolean(
+        expectedKey && providedKey && providedKey === expectedKey
+    );
+}
+
 export async function POST(req: Request) {
     const { userId } = await auth();
+    const isInternal = isInternalExecutionAuthorized(req);
 
-    if (!userId) {
+    if (!userId && !isInternal) {
         return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 

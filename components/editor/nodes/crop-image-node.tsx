@@ -21,25 +21,39 @@ export function CropImageNode({ data }: NodeProps<CropImageFlowNode>) {
                     {data.imageConnected ? "Image connected" : "Waiting for image input..."}
                 </div>
 
+                {data.imageUrl ? (
+                    <div className="mt-4 overflow-hidden rounded-[12px] bg-[#14181f]">
+                        <img
+                            src={data.imageUrl}
+                            alt="Cropped output"
+                            className="h-[180px] w-full object-cover"
+                        />
+                    </div>
+                ) : null}
+
                 <div className="mt-4 grid grid-cols-2 gap-3">
                     <Field
                         label="x %"
-                        value={data.xPercent || "0"}
+                        value={data.xPercent ?? "0"}
+                        disabled={false}
                         onChange={(value) => data.onFieldChange?.("xPercent", value)}
                     />
                     <Field
                         label="y %"
-                        value={data.yPercent || "0"}
+                        value={data.yPercent ?? "0"}
+                        disabled={false}
                         onChange={(value) => data.onFieldChange?.("yPercent", value)}
                     />
                     <Field
                         label="width %"
-                        value={data.widthPercent || "100"}
+                        value={data.widthPercent ?? "100"}
+                        disabled={false}
                         onChange={(value) => data.onFieldChange?.("widthPercent", value)}
                     />
                     <Field
                         label="height %"
-                        value={data.heightPercent || "100"}
+                        value={data.heightPercent ?? "100"}
+                        disabled={false}
                         onChange={(value) => data.onFieldChange?.("heightPercent", value)}
                     />
                 </div>
@@ -66,19 +80,30 @@ export function CropImageNode({ data }: NodeProps<CropImageFlowNode>) {
 function Field({
     label,
     value,
+    disabled,
     onChange,
 }: {
     label: string;
     value: string;
+    disabled: boolean;
     onChange: (value: string) => void;
 }) {
     return (
-        <div>
+        <div className="nodrag nopan">
             <div className="mb-1 text-[12px] text-white/55">{label}</div>
             <input
+                type="text"
+                inputMode="decimal"
                 value={value}
+                disabled={disabled}
                 onChange={(e) => onChange(e.target.value)}
-                className="nodrag nopan w-full rounded-[10px] bg-[#14181f] px-3 py-2 text-sm text-white outline-none"
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                className={`nodrag nopan w-full rounded-[10px] px-3 py-2 text-sm outline-none ${disabled
+                        ? "bg-[#10141a] text-white/35"
+                        : "bg-[#14181f] text-white"
+                    }`}
             />
         </div>
     );

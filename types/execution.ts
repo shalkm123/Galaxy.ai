@@ -15,9 +15,15 @@ export type ExecutionResponse = {
     updatedNodes: AppFlowNode[];
 };
 
+export type ExecutionMode = "full" | "single";
+
 export type ExecutionRequest = {
     workflowId?: string | null;
     template: string;
     nodes: AppFlowNode[];
     edges: WorkflowEdge[];
+
+    // ✅ NEW (for selective execution)
+    mode?: ExecutionMode;
+    selectedNodeId?: string | null;
 };
