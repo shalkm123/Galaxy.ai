@@ -19,6 +19,8 @@ export function ImageGeneratorNode({ data }: NodeProps<ImageGeneratorFlowNode>) 
                 <span>{data.runStatus === "running" ? "Running..." : "Image"}</span>
             </div>
 
+
+
             <div className="px-4 pb-4 pt-2">
                 <div className="overflow-hidden rounded-[12px] bg-[#14181f]">
                     {data.imageUrl ? (
@@ -54,8 +56,8 @@ export function ImageGeneratorNode({ data }: NodeProps<ImageGeneratorFlowNode>) 
                         onChange={(e) => data.onPromptChange?.(e.target.value)}
                         placeholder="Describe the image you want to generate..."
                         className={`nodrag nopan mt-2 min-h-[88px] w-full resize-none rounded-[10px] p-3 text-sm outline-none placeholder:text-white/35 ${promptDisabled
-                                ? "bg-[#10141a] text-white/35"
-                                : "bg-[#14181f] text-white"
+                            ? "bg-[#10141a] text-white/35"
+                            : "bg-[#14181f] text-white"
                             }`}
                     />
 

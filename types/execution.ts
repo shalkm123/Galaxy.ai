@@ -2,7 +2,11 @@ import type { AppFlowNode, WorkflowEdge } from "@/types/workflow";
 
 export type ExecutionNodeResult = {
     nodeId: string;
+    nodeLabel: string;
+    nodeType: string;
     status: "success" | "failed";
+    startedAt?: string;
+    finishedAt?: string;
     output?: string;
     error?: string;
     durationMs: number;
@@ -22,8 +26,12 @@ export type ExecutionRequest = {
     template: string;
     nodes: AppFlowNode[];
     edges: WorkflowEdge[];
-
-    // ✅ NEW (for selective execution)
     mode?: ExecutionMode;
     selectedNodeId?: string | null;
+};
+
+export type StartExecutionResponse = {
+    triggerRunId: string;
+    workflowId?: string | null;
+    status: "queued";
 };

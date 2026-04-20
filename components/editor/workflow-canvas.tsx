@@ -30,6 +30,7 @@ import { NodePicker } from "@/components/editor/node-picker";
 import {
     getEmptyWorkflow,
     getImageGeneratorWorkflow,
+    getMarketingWorkflow,
 } from "@/lib/workflow-templates";
 import { isConnectionAllowed } from "@/lib/connection-rules";
 import { wouldCreateCycle } from "@/lib/graph-helpers";
@@ -297,6 +298,13 @@ export function WorkflowCanvas() {
 
         if (template === "image-generator") {
             const workflow = getImageGeneratorWorkflow();
+            setNodes(attachNodeActions(workflow.nodes as AppFlowNode[]));
+            setEdges(workflow.edges as WorkflowEdge[]);
+            return;
+        }
+
+        if (template === "marketing-workflow") {
+            const workflow = getMarketingWorkflow();
             setNodes(attachNodeActions(workflow.nodes as AppFlowNode[]));
             setEdges(workflow.edges as WorkflowEdge[]);
             return;
@@ -585,6 +593,10 @@ export function WorkflowCanvas() {
                             return sourceNode.data.outputImageUrl ?? "";
                         }
 
+                        if (sourceNode.type === "cropImageNode") {
+                            return sourceNode.data.imageUrl ?? "";
+                        }
+
                         return "";
                     })()
                     : node.data.imageUrl;
@@ -701,7 +713,7 @@ export function WorkflowCanvas() {
                     dragHandle: ".node-drag-handle",
                     data: {
                         label: "Run Any LLM",
-                        model: "gemini-2.5-flash",
+                        model: "gemini-2.0-flash",
                         systemPrompt: "",
                         userMessage: "",
                         output: "",

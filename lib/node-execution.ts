@@ -124,6 +124,24 @@ function resolveInputValue(
     return getSourceNodeOutput(sourceNode);
 }
 
+function resolveInputValues(
+    nodeId: string,
+    targetHandle: string,
+    nodes: AppFlowNode[],
+    edges: WorkflowEdge[]
+): string[] {
+    const incomingEdges = edges.filter(
+        (edge) => edge.target === nodeId && edge.targetHandle === targetHandle
+    );
+
+    return incomingEdges
+        .map((edge) => {
+            const sourceNode = nodes.find((node) => node.id === edge.source);
+            return getSourceNodeOutput(sourceNode);
+        })
+        .filter((value): value is string => Boolean(value));
+}
+
 function getExecutionOutput(
     partial: Partial<AppFlowNode["data"]>
 ): string | undefined {
@@ -152,22 +170,39 @@ function getInternalHeaders(internalExecutionKey: string) {
     };
 }
 
-async function executePromptNode(node: AppFlowNode) {
+async function executePromptNode(
+    node: AppFlowNode,
+    nodes: AppFlowNode[],
+    edges: WorkflowEdge[]
+) {
     if (node.type !== "promptNode") return {};
 
-    const output = node.data.content ?? "";
+    const output =
+        resolveInputValue(node.id, "content", nodes, edges) ||
+        resolveInputValue(node.id, "prompt-input", nodes, edges) ||
+        node.data.content ||
+        "";
 
     return {
+        content: output,
         output,
     };
 }
 
-async function executeTextNode(node: AppFlowNode) {
+async function executeTextNode(
+    node: AppFlowNode,
+    nodes: AppFlowNode[],
+    edges: WorkflowEdge[]
+) {
     if (node.type !== "textNode") return {};
 
-    const output = node.data.content ?? "";
+    const output =
+        resolveInputValue(node.id, "content", nodes, edges) ||
+        node.data.content ||
+        "";
 
     return {
+        content: output,
         output,
     };
 }
@@ -189,10 +224,13 @@ async function executeLlmNode(
         node.data.userMessage ||
         "";
 
+    const imageUrls = resolveInputValues(node.id, "images", nodes, edges);
+
     const output = await runGeminiText({
         model: node.data.model,
         systemPrompt,
         userMessage,
+        imageUrls,
     });
 
     return {
@@ -325,8 +363,8 @@ async function executeNode(
     baseUrl: string,
     internalExecutionKey: string
 ): Promise<Partial<AppFlowNode["data"]>> {
-    if (node.type === "promptNode") return executePromptNode(node);
-    if (node.type === "textNode") return executeTextNode(node);
+    if (node.type === "promptNode") return executePromptNode(node, nodes, edges);
+    if (node.type === "textNode") return executeTextNode(node, nodes, edges);
     if (node.type === "llmNode") return executeLlmNode(node, nodes, edges);
 
     if (node.type === "cropImageNode") {
@@ -386,75 +424,208 @@ export async function executeWorkflowGraph(
         );
     }
 
+    const incomingMap = new Map<string, string[]>();
+    const outgoingMap = new Map<string, string[]>();
+
+    for (const node of executionNodes) {
+        incomingMap.set(node.id, []);
+        outgoingMap.set(node.id, []);
+    }
+
+    for (const edge of executionEdges) {
+        incomingMap.get(edge.target)?.push(edge.source);
+        outgoingMap.get(edge.source)?.push(edge.target);
+    }
     const orderedNodes = topologicalSort(executionNodes, executionEdges);
 
-    const updatedNodes: AppFlowNode[] = [...nodes];
+    const updatedNodes: AppFlowNode[] = nodes.map((node) => ({
+        ...node,
+        data: {
+            ...node.data,
+            runStatus: "idle",
+            error: undefined,
+            durationMs: undefined,
+        },
+    }));
+
     const nodeResults: ExecutionNodeResult[] = [];
+    const completed = new Set<string>();
+    const running = new Set<string>();
+    const failed = new Set<string>();
 
-    for (const node of orderedNodes) {
-        const nodeStart = Date.now();
+    const isReady = (nodeId: string) => {
+        const deps = incomingMap.get(nodeId) ?? [];
+        return deps.every((depId) => completed.has(depId));
+    };
 
-        try {
-            const currentNodeIndex = updatedNodes.findIndex((n) => n.id === node.id);
-            if (currentNodeIndex === -1) continue;
+    const hasFailedDependency = (nodeId: string) => {
+        const deps = incomingMap.get(nodeId) ?? [];
+        return deps.some((depId) => failed.has(depId));
+    };
 
-            updatedNodes[currentNodeIndex] = {
-                ...updatedNodes[currentNodeIndex],
-                data: {
-                    ...updatedNodes[currentNodeIndex].data,
-                    runStatus: "running",
-                    error: undefined,
-                },
-            };
+    while (completed.size < orderedNodes.length) {
+        const readyNodes = orderedNodes.filter(
+            (node) =>
+                !completed.has(node.id) &&
+                !running.has(node.id) &&
+                isReady(node.id)
+        );
 
-            const partial = await executeNode(
-                updatedNodes[currentNodeIndex],
-                updatedNodes,
-                executionEdges,
-                baseUrl,
-                internalExecutionKey
+        if (readyNodes.length === 0) {
+            const blockedNodes = orderedNodes.filter(
+                (node) =>
+                    !completed.has(node.id) &&
+                    !running.has(node.id) &&
+                    hasFailedDependency(node.id)
             );
 
-            updatedNodes[currentNodeIndex] = {
-                ...updatedNodes[currentNodeIndex],
-                data: {
-                    ...updatedNodes[currentNodeIndex].data,
-                    ...partial,
-                    runStatus: "success",
-                    durationMs: Date.now() - nodeStart,
-                },
-            };
+            if (blockedNodes.length > 0) {
+                for (const node of blockedNodes) {
+                    const currentNodeIndex = updatedNodes.findIndex((n) => n.id === node.id);
+                    const message = "Skipped because an upstream dependency failed";
+                    const nowIso = new Date().toISOString();
 
-            nodeResults.push({
-                nodeId: node.id,
-                status: "success",
-                output: getExecutionOutput(partial),
-                durationMs: Date.now() - nodeStart,
-            });
-        } catch (error) {
-            const currentNodeIndex = updatedNodes.findIndex((n) => n.id === node.id);
-            const message =
-                error instanceof Error ? error.message : "Node execution failed";
+                    if (currentNodeIndex !== -1) {
+                        updatedNodes[currentNodeIndex] = {
+                            ...updatedNodes[currentNodeIndex],
+                            data: {
+                                ...updatedNodes[currentNodeIndex].data,
+                                runStatus: "failed",
+                                error: message,
+                            },
+                        };
+                    }
 
-            if (currentNodeIndex !== -1) {
-                updatedNodes[currentNodeIndex] = {
-                    ...updatedNodes[currentNodeIndex],
-                    data: {
-                        ...updatedNodes[currentNodeIndex].data,
-                        runStatus: "failed",
+                    nodeResults.push({
+                        nodeId: node.id,
+                        nodeLabel:
+                            currentNodeIndex !== -1 &&
+                                "label" in updatedNodes[currentNodeIndex].data &&
+                                updatedNodes[currentNodeIndex].data.label
+                                ? updatedNodes[currentNodeIndex].data.label
+                                : node.type,
+                        nodeType: node.type,
+                        status: "failed",
+                        startedAt: nowIso,
+                        finishedAt: nowIso,
                         error: message,
-                        durationMs: Date.now() - nodeStart,
-                    },
-                };
+                        durationMs: 0,
+                    });
+
+                    failed.add(node.id);
+                    completed.add(node.id);
+                }
+
+                continue;
             }
 
-            nodeResults.push({
-                nodeId: node.id,
-                status: "failed",
-                error: message,
-                durationMs: Date.now() - nodeStart,
-            });
+            throw new Error("Deadlock detected during workflow execution");
         }
+
+        await Promise.all(
+            readyNodes.map(async (node) => {
+                const nodeStart = Date.now();
+                const nodeStartedAtIso = new Date(nodeStart).toISOString();
+
+                running.add(node.id);
+
+                try {
+                    const currentNodeIndex = updatedNodes.findIndex((n) => n.id === node.id);
+                    if (currentNodeIndex === -1) {
+                        completed.add(node.id);
+                        running.delete(node.id);
+                        return;
+                    }
+
+                    updatedNodes[currentNodeIndex] = {
+                        ...updatedNodes[currentNodeIndex],
+                        data: {
+                            ...updatedNodes[currentNodeIndex].data,
+                            runStatus: "running",
+                            error: undefined,
+                        },
+                    };
+
+                    const partial = await executeNode(
+                        updatedNodes[currentNodeIndex],
+                        updatedNodes,
+                        executionEdges,
+                        baseUrl,
+                        internalExecutionKey
+                    );
+
+                    const nodeFinishedAt = Date.now();
+                    const nodeFinishedAtIso = new Date(nodeFinishedAt).toISOString();
+                    const nodeDurationMs = nodeFinishedAt - nodeStart;
+
+                    updatedNodes[currentNodeIndex] = {
+                        ...updatedNodes[currentNodeIndex],
+                        data: {
+                            ...updatedNodes[currentNodeIndex].data,
+                            ...partial,
+                            runStatus: "success",
+                            durationMs: nodeDurationMs,
+                            error: undefined,
+                        },
+                    };
+
+                    nodeResults.push({
+                        nodeId: node.id,
+                        nodeLabel:
+                            "label" in updatedNodes[currentNodeIndex].data &&
+                                updatedNodes[currentNodeIndex].data.label
+                                ? updatedNodes[currentNodeIndex].data.label
+                                : node.type,
+                        nodeType: node.type,
+                        status: "success",
+                        startedAt: nodeStartedAtIso,
+                        finishedAt: nodeFinishedAtIso,
+                        output: getExecutionOutput(partial),
+                        durationMs: nodeDurationMs,
+                    });
+                } catch (error) {
+                    const currentNodeIndex = updatedNodes.findIndex((n) => n.id === node.id);
+                    const message =
+                        error instanceof Error ? error.message : "Node execution failed";
+                    const nodeFinishedAt = Date.now();
+                    const nodeFinishedAtIso = new Date(nodeFinishedAt).toISOString();
+                    const nodeDurationMs = nodeFinishedAt - nodeStart;
+
+                    if (currentNodeIndex !== -1) {
+                        updatedNodes[currentNodeIndex] = {
+                            ...updatedNodes[currentNodeIndex],
+                            data: {
+                                ...updatedNodes[currentNodeIndex].data,
+                                runStatus: "failed",
+                                error: message,
+                                durationMs: nodeDurationMs,
+                            },
+                        };
+                    }
+
+                    nodeResults.push({
+                        nodeId: node.id,
+                        nodeLabel:
+                            currentNodeIndex !== -1 &&
+                                "label" in updatedNodes[currentNodeIndex].data &&
+                                updatedNodes[currentNodeIndex].data.label
+                                ? updatedNodes[currentNodeIndex].data.label
+                                : node.type,
+                        nodeType: node.type,
+                        status: "failed",
+                        startedAt: nodeStartedAtIso,
+                        finishedAt: nodeFinishedAtIso,
+                        error: message,
+                        durationMs: nodeDurationMs,
+                    });
+
+                    failed.add(node.id);
+                } finally {
+                    completed.add(node.id);
+                    running.delete(node.id);
+                }
+            })
+        );
     }
 
     const hasFailed = nodeResults.some((result) => result.status === "failed");

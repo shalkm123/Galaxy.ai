@@ -11,6 +11,8 @@ export function CropImageNode({ data }: NodeProps<CropImageFlowNode>) {
                 data.runStatus
             )}`}
         >
+
+
             <div className="node-drag-handle flex cursor-grab items-center justify-between px-4 pt-3 text-[12px] text-white/55 active:cursor-grabbing">
                 <span>{data.label || "Crop Image"}</span>
                 <span>{data.runStatus === "running" ? "Running..." : "Image"}</span>
@@ -91,6 +93,8 @@ function Field({
     return (
         <div className="nodrag nopan">
             <div className="mb-1 text-[12px] text-white/55">{label}</div>
+
+
             <input
                 type="text"
                 inputMode="decimal"
@@ -101,8 +105,8 @@ function Field({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
                 className={`nodrag nopan w-full rounded-[10px] px-3 py-2 text-sm outline-none ${disabled
-                        ? "bg-[#10141a] text-white/35"
-                        : "bg-[#14181f] text-white"
+                    ? "bg-[#10141a] text-white/35"
+                    : "bg-[#14181f] text-white"
                     }`}
             />
         </div>

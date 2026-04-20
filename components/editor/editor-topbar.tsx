@@ -10,6 +10,7 @@ export function EditorTopbar() {
     const workflowName = useEditorStore((state) => state.workflowName);
     const isSaving = useEditorStore((state) => state.isSaving);
     const selectedNodeId = useEditorStore((state) => state.selectedNodeId);
+    const triggerRunId = useEditorStore((s) => s.currentTriggerRunId);
 
     const setTemplate = useEditorStore((state) => state.setTemplate);
     const setNodes = useEditorStore((state) => state.setNodes);
@@ -49,14 +50,31 @@ export function EditorTopbar() {
                         ? "Choose a workflow template"
                         : template === "image-generator"
                             ? "Image Generator"
-                            : "Empty Workflow"}
+                            : template === "marketing-workflow"
+                                ? "Marketing Workflow"
+                                : "Empty Workflow"}
                 </div>
 
-                {selectedNodeId ? (
+                {selectedNodeId && !isRunning && (
                     <div className="hidden rounded-lg bg-blue-500/10 px-2 py-1 text-xs text-blue-300 md:block">
                         Node Selected
                     </div>
-                ) : null}
+                )}
+
+                {/* 🔥 LIVE RUN STATUS */}
+                {isRunning && (
+                    <div className="hidden md:flex items-center gap-2 rounded-lg bg-yellow-500/10 px-3 py-1 text-xs text-yellow-300">
+                        <span className="animate-pulse">●</span>
+                        Running...
+                    </div>
+                )}
+
+                {/* 🔥 Trigger Run ID */}
+                {triggerRunId && (
+                    <div className="hidden md:block text-[11px] text-blue-400">
+                        {triggerRunId.slice(0, 8)}...
+                    </div>
+                )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -65,7 +83,7 @@ export function EditorTopbar() {
                     className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white"
                 >
                     <Plus className="h-4 w-4" />
-                    New Workflow
+                    New
                 </button>
 
                 <button
@@ -87,8 +105,8 @@ export function EditorTopbar() {
                     onClick={saveWorkflow}
                     disabled={template === "templates" || isSaving}
                     className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${template === "templates" || isSaving
-                            ? "cursor-not-allowed border-white/10 bg-white/5 text-white/35"
-                            : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white"
+                        ? "cursor-not-allowed border-white/10 bg-white/5 text-white/35"
+                        : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white"
                         }`}
                 >
                     <Save className="h-4 w-4" />
@@ -97,31 +115,29 @@ export function EditorTopbar() {
 
                 <div
                     className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm ${isRunning
-                            ? "bg-blue-500/15 text-blue-300"
-                            : selectedNodeId
-                                ? "bg-blue-500/10 text-blue-300"
-                                : "bg-white/5 text-white/45"
+                        ? "bg-yellow-500/15 text-yellow-300"
+                        : selectedNodeId
+                            ? "bg-blue-500/10 text-blue-300"
+                            : "bg-white/5 text-white/45"
                         }`}
                 >
                     <Play className="h-4 w-4" />
                     {isRunning
                         ? selectedNodeId
-                            ? "Running Selected Node"
+                            ? "Running Node"
                             : "Running Workflow"
                         : selectedNodeId
                             ? "Node Selected"
                             : "Idle"}
                 </div>
 
-                <div className="ml-2 flex items-center">
-                    <UserButton
-                        appearance={{
-                            elements: {
-                                avatarBox: "h-9 w-9",
-                            },
-                        }}
-                    />
-                </div>
+                <UserButton
+                    appearance={{
+                        elements: {
+                            avatarBox: "h-9 w-9",
+                        },
+                    }}
+                />
             </div>
         </div>
     );

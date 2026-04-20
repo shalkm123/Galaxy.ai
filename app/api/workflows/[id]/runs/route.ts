@@ -68,6 +68,8 @@ export async function POST(
                 nodeLabel: string;
                 nodeType: string;
                 status: string;
+                startedAt?: string;
+                finishedAt?: string;
                 durationMs?: number;
                 output?: string;
                 error?: string;
@@ -99,6 +101,8 @@ export async function POST(
                         nodeLabel: nodeRun.nodeLabel,
                         nodeType: nodeRun.nodeType,
                         status: nodeRun.status,
+                        startedAt: nodeRun.startedAt ? new Date(nodeRun.startedAt) : null,
+                        finishedAt: nodeRun.finishedAt ? new Date(nodeRun.finishedAt) : null,
                         durationMs: nodeRun.durationMs,
                         output: nodeRun.output,
                         error: nodeRun.error,

@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 type TemplateKey =
     | "empty"
     | "image-generator"
+    | "marketing-workflow"
     | "video-generator"
     | "enhancer"
     | "llm-captioning"
@@ -21,10 +22,18 @@ const templates: Template[] = [
     { title: "Empty Workflow", plus: true, key: "empty" },
     {
         title: "Image Generator",
-        subtitle: "Simple text to image Generation with Krea 1",
+        subtitle: "Simple text to image generation with Krea 1",
         image:
             "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=600",
         key: "image-generator",
+    },
+    {
+        title: "Marketing Workflow",
+        subtitle:
+            "Parallel image + video workflow with crop, frame extraction, and final LLM convergence",
+        image:
+            "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600",
+        key: "marketing-workflow",
     },
     {
         title: "Video Generator",

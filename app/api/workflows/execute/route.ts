@@ -1,20 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { runs, tasks } from "@trigger.dev/sdk";
+import { tasks } from "@trigger.dev/sdk";
 import { getBaseUrl } from "@/lib/get-base-url";
 import type { ExecutionRequest } from "@/types/execution";
 import type { workflowRunTask } from "@/trigger/workflow-run";
-
-function isTerminalStatus(status?: string) {
-    const value = (status ?? "").toUpperCase();
-
-    return (
-        value === "COMPLETED" ||
-        value === "FAILED" ||
-        value === "CANCELED" ||
-        value === "CANCELLED"
-    );
-}
 
 export async function POST(req: Request) {
     try {
@@ -31,6 +20,8 @@ export async function POST(req: Request) {
         const baseUrl = await getBaseUrl();
 
         const handle = await tasks.trigger<typeof workflowRunTask>("workflow-run", {
+            workflowId: body.workflowId ?? null,
+            userId,
             nodes: body.nodes,
             edges: body.edges,
             baseUrl,
@@ -41,40 +32,11 @@ export async function POST(req: Request) {
             },
         });
 
-        for await (const run of runs.subscribeToRun(handle.id)) {
-            if (isTerminalStatus(run.status)) {
-                break;
-            }
-        }
-
-        const finalRun = await runs.retrieve(handle.id);
-
-        const finalStatus = (finalRun.status ?? "").toUpperCase();
-
-        if (finalStatus !== "COMPLETED") {
-            return NextResponse.json(
-                {
-                    message: "Trigger.dev workflow run failed",
-                    triggerRunId: handle.id,
-                    status: finalRun.status,
-                    error: finalRun.error ?? null,
-                },
-                { status: 500 }
-            );
-        }
-
-        if (!finalRun.output) {
-            return NextResponse.json(
-                {
-                    message: "Trigger.dev workflow run completed with no output",
-                    triggerRunId: handle.id,
-                    status: finalRun.status,
-                },
-                { status: 500 }
-            );
-        }
-
-        return NextResponse.json(finalRun.output);
+        return NextResponse.json({
+            triggerRunId: handle.id,
+            workflowId: body.workflowId ?? null,
+            status: "queued",
+        });
     } catch (error) {
         console.error("Workflow execution route failed:", error);
 

@@ -28,9 +28,8 @@ export function PromptNode({ data }: NodeProps<PromptFlowNode>) {
                     disabled={disabled}
                     onChange={(e) => data.onChange?.(e.target.value)}
                     placeholder="Enter prompt..."
-                    className={`nodrag nopan min-h-[110px] w-full resize-none rounded-[12px] p-3 text-sm outline-none placeholder:text-white/35 ${
-                        disabled ? "bg-[#10141a] text-white/35" : "bg-[#14181f] text-white"
-                    }`}
+                    className={`nodrag nopan min-h-[110px] w-full resize-none rounded-[12px] p-3 text-sm outline-none placeholder:text-white/35 ${disabled ? "bg-[#10141a] text-white/35" : "bg-[#14181f] text-white"
+                        }`}
                 />
             </div>
 

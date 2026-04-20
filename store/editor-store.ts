@@ -16,6 +16,7 @@ import { serializeWorkflow } from "@/lib/workflow-serializer";
 import type { WorkflowRun, NodeRunStatus } from "@/types/run-history";
 import type { PersistedWorkflow } from "@/types/persisted-workflow";
 import type { PersistedWorkflowRun } from "@/types/persisted-run";
+import type { ExecutionResponse } from "@/types/execution";
 
 function toNodeRunStatus(status?: NodeRuntimeStatus): NodeRunStatus {
     if (status === "success") return "success";
@@ -24,10 +25,15 @@ function toNodeRunStatus(status?: NodeRuntimeStatus): NodeRunStatus {
     return "pending";
 }
 
-export type EditorTemplate = "templates" | "empty" | "image-generator";
+export type EditorTemplate =
+    | "templates"
+    | "empty"
+    | "image-generator"
+    | "marketing-workflow";
 export type ExecutionMode = "full" | "single";
 
 const STORAGE_KEY = "galaxy-editor-workflow-v1";
+const ACTIVE_TRIGGER_RUN_KEY = "galaxy-active-trigger-run-v1";
 
 type HistoryState = {
     nodes: AppFlowNode[];
@@ -55,6 +61,7 @@ type EditorStore = {
     isSaving: boolean;
     hasHydrated: boolean;
     isLoadingWorkflow: boolean;
+    currentTriggerRunId: string | null;
 
     beginWorkflowLoad: () => void;
     loadWorkflowById: (workflowId: string) => Promise<void>;
@@ -67,6 +74,7 @@ type EditorStore = {
     setEdges: (edges: WorkflowEdge[]) => void;
     setNodesWithoutHistory: (nodes: AppFlowNode[]) => void;
     setEdgesWithoutHistory: (edges: WorkflowEdge[]) => void;
+    setCurrentTriggerRunId: (id: string | null) => void;
     resetWorkflow: (nodes: AppFlowNode[], edges: WorkflowEdge[]) => void;
 
     loadWorkflow: (payload: {
@@ -106,7 +114,18 @@ type EditorStore = {
     clearHistory: () => void;
 
     runWorkflow: () => Promise<void>;
+    pollTriggerRun: (
+        triggerRunId: string,
+        run: WorkflowRun,
+        nodesSnapshot: AppFlowNode[],
+        runMode: ExecutionMode,
+        selectedNodeId: string | null
+    ) => Promise<void>;
     saveWorkflow: () => Promise<void>;
+
+    saveActiveTriggerRun: (triggerRunId: string | null) => void;
+    loadActiveTriggerRun: () => string | null;
+    clearActiveTriggerRun: () => void;
 
     saveToLocalStorage: () => void;
     loadFromLocalStorage: () => boolean;
@@ -157,7 +176,10 @@ function stripNodeCallbacks(nodes: AppFlowNode[]): AppFlowNode[] {
     });
 }
 
-function cloneHistoryState(nodes: AppFlowNode[], edges: WorkflowEdge[]): HistoryState {
+function cloneHistoryState(
+    nodes: AppFlowNode[],
+    edges: WorkflowEdge[]
+): HistoryState {
     return {
         nodes: structuredClone(stripNodeCallbacks(nodes)),
         edges: structuredClone(edges),
@@ -185,6 +207,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     isSaving: false,
     hasHydrated: false,
     isLoadingWorkflow: false,
+    currentTriggerRunId: null,
 
     beginWorkflowLoad: () =>
         set({
@@ -229,6 +252,37 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             });
 
             await get().fetchRunsForWorkflow(workflowId);
+
+            const activeTriggerRunId = get().loadActiveTriggerRun();
+
+            if (activeTriggerRunId) {
+                set({
+                    isRunning: true,
+                    currentTriggerRunId: activeTriggerRunId,
+                });
+
+                const resumedRun =
+                    get().runs[0] ?? createInitialWorkflowRun(get().nodes);
+
+                get()
+                    .pollTriggerRun(
+                        activeTriggerRunId,
+                        resumedRun,
+                        get().nodes,
+                        get().runMode,
+                        get().selectedNodeId
+                    )
+                    .catch((error) => {
+                        console.error("Failed to resume Trigger.dev polling:", error);
+
+                        set({
+                            isRunning: false,
+                            currentTriggerRunId: null,
+                        });
+
+                        get().clearActiveTriggerRun();
+                    });
+            }
         } catch (error) {
             console.error(error);
             set({ isLoadingWorkflow: false });
@@ -295,6 +349,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         set({ edges });
     },
 
+    setCurrentTriggerRunId: (id) => set({ currentTriggerRunId: id }),
+
     resetWorkflow: (nodes, edges) =>
         set({
             nodes: sanitizeNodesForEditor(nodes),
@@ -348,15 +404,36 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                     finishedAt: isFinished
                         ? run.finishedAt ?? new Date().toISOString()
                         : undefined,
-                    nodeRuns: run.nodeRuns,
+                    nodeRuns: run.nodeRuns.map((nodeRun) => ({
+                        nodeId: nodeRun.nodeId,
+                        nodeLabel: nodeRun.nodeLabel,
+                        nodeType: nodeRun.nodeType,
+                        status: nodeRun.status,
+                        startedAt: nodeRun.startedAt,
+                        finishedAt: nodeRun.finishedAt,
+                        durationMs: nodeRun.durationMs,
+                        output: nodeRun.output,
+                        error: nodeRun.error,
+                    })),
                 }),
             });
 
             if (!response.ok) {
-                throw new Error("Failed to persist workflow run");
+                let message = "Failed to persist workflow run";
+
+                try {
+                    const errorData = await response.json();
+                    message = errorData.message || message;
+                } catch {
+                    try {
+                        message = await response.text();
+                    } catch { }
+                }
+
+                throw new Error(message);
             }
         } catch (error) {
-            console.error(error);
+            console.error("persistRun failed:", error);
         }
     },
 
@@ -422,6 +499,179 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             selectedRunId: null,
         }),
 
+    pollTriggerRun: async (
+        triggerRunId,
+        run,
+        nodesSnapshot,
+        runMode,
+        selectedNodeId
+    ) => {
+        const pollIntervalMs = 1500;
+        const maxAttempts = 120;
+
+        let attempt = 0;
+        let finalStatus: string | null = null;
+        let finalError: string | null = null;
+        let finalOutput:
+            | {
+                result?: ExecutionResponse;
+                persistedRunId?: string | null;
+                workflowId?: string | null;
+                triggerStatus?: string;
+            }
+            | null = null;
+
+        while (attempt < maxAttempts) {
+            attempt += 1;
+
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+
+            const statusResponse = await fetch(
+                `/api/workflows/trigger-runs/${triggerRunId}`,
+                {
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
+
+            const statusResult = await statusResponse.json().catch(() => null);
+
+            if (!statusResponse.ok) {
+                throw new Error(
+                    statusResult?.message || "Failed to fetch Trigger.dev run status"
+                );
+            }
+
+            finalStatus = statusResult?.status ?? null;
+
+            if (finalStatus === "completed") {
+                finalOutput = statusResult?.output ?? null;
+                break;
+            }
+
+            if (finalStatus === "failed" || finalStatus === "cancelled") {
+                finalError =
+                    statusResult?.error || `Trigger.dev run ${finalStatus}`;
+                break;
+            }
+        }
+
+        if (finalError) {
+            throw new Error(finalError);
+        }
+
+        if (finalStatus !== "completed") {
+            throw new Error("Execution timed out while waiting for Trigger.dev run");
+        }
+
+        const executionResult = finalOutput?.result;
+
+        if (!executionResult) {
+            throw new Error("Trigger.dev run completed without workflow result");
+        }
+
+        const getNodeRuntimeStatus = (status?: string): NodeRuntimeStatus => {
+            if (status === "success") return "success";
+            if (status === "failed") return "failed";
+            if (status === "running") return "running";
+            if (status === "pending") return "pending";
+            return "idle";
+        };
+
+        const executionResults = Array.isArray(executionResult?.nodeResults)
+            ? executionResult.nodeResults
+            : [];
+
+        const mergedNodes: AppFlowNode[] = (
+            executionResult.updatedNodes as AppFlowNode[]
+        ).map((node) => {
+            const execution = executionResults.find(
+                (r: { nodeId: string }) => r.nodeId === node.id
+            );
+
+            return {
+                ...node,
+                data: {
+                    ...node.data,
+                    runStatus: execution
+                        ? getNodeRuntimeStatus(execution.status)
+                        : "idle",
+                    error: execution?.error,
+                    durationMs: execution?.durationMs,
+                    output:
+                        execution?.output !== undefined
+                            ? execution.output
+                            : node.data.output,
+                },
+            };
+        });
+
+        const updatedNodeRuns = run.nodeRuns.map((nodeRun) => {
+            const execution = executionResults.find(
+                (r: {
+                    nodeId: string;
+                    nodeLabel: string;
+                    nodeType: string;
+                    status: "success" | "failed";
+                    startedAt?: string;
+                    finishedAt?: string;
+                    output?: string;
+                    error?: string;
+                    durationMs?: number;
+                }) => r.nodeId === nodeRun.nodeId
+            );
+
+            if (execution) {
+                return {
+                    ...nodeRun,
+                    nodeLabel: execution.nodeLabel ?? nodeRun.nodeLabel,
+                    nodeType: execution.nodeType ?? nodeRun.nodeType,
+                    status: execution.status,
+                    startedAt: execution.startedAt,
+                    finishedAt: execution.finishedAt,
+                    output: execution.output,
+                    error: execution.error,
+                    durationMs: execution.durationMs,
+                };
+            }
+
+            return {
+                ...nodeRun,
+                status:
+                    runMode === "single"
+                        ? toNodeRunStatus(
+                            nodesSnapshot.find((n) => n.id === nodeRun.nodeId)?.data.runStatus
+                        )
+                        : nodeRun.status,
+            };
+        });
+
+        const finishedRun: WorkflowRun = {
+            ...run,
+            durationMs: executionResult.durationMs ?? 0,
+            status: finalizeRunStatus(updatedNodeRuns),
+            finishedAt: new Date().toISOString(),
+            nodeRuns: updatedNodeRuns,
+        };
+
+        set((state) => ({
+            isRunning: false,
+            currentTriggerRunId: null,
+            nodes: mergedNodes,
+            runs: state.runs.map((r) => (r.id === run.id ? finishedRun : r)),
+            selectedRunId: run.id,
+        }));
+
+        get().clearActiveTriggerRun();
+
+        const { workflowId } = get();
+        if (workflowId) {
+            await get().fetchRunsForWorkflow(workflowId);
+        }
+    },
+
     runWorkflow: async () => {
         const {
             nodes,
@@ -468,98 +718,38 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 }),
             });
 
+            const result = await response.json().catch(() => null);
+
             if (!response.ok) {
-                throw new Error("Execution failed");
+                throw new Error(result?.message || "Execution failed");
             }
 
-            const result = await response.json();
+            const triggerRunId: string | undefined = result?.triggerRunId;
 
-            const getNodeRuntimeStatus = (
-                status?: string
-            ): NodeRuntimeStatus => {
-                if (status === "success") return "success";
-                if (status === "failed") return "failed";
-                if (status === "running") return "running";
-                if (status === "pending") return "pending";
-                return "idle";
-            };
+            if (!triggerRunId) {
+                throw new Error("Missing triggerRunId from execution response");
+            }
 
-            const mergedNodes: AppFlowNode[] = (
-                result.updatedNodes as AppFlowNode[]
-            ).map((node) => {
-                const execution = result.nodeResults.find(
-                    (r: { nodeId: string }) => r.nodeId === node.id
-                );
+            set({ currentTriggerRunId: triggerRunId });
+            get().saveActiveTriggerRun(triggerRunId);
 
-                return {
-                    ...node,
-                    data: {
-                        ...node.data,
-                        runStatus: getNodeRuntimeStatus(execution?.status),
-                        error: execution?.error,
-                        durationMs: execution?.durationMs,
-                        output:
-                            execution?.output !== undefined
-                                ? execution.output
-                                : node.data.output,
-                    },
-                };
-            });
-
-            const updatedNodeRuns = run.nodeRuns.map((nodeRun) => {
-                const execution = result.nodeResults.find(
-                    (r: {
-                        nodeId: string;
-                        status: "success" | "failed";
-                        output?: string;
-                        error?: string;
-                        durationMs?: number;
-                    }) => r.nodeId === nodeRun.nodeId
-                );
-
-                return execution
-                    ? {
-                        ...nodeRun,
-                        status: execution.status,
-                        output: execution.output,
-                        error: execution.error,
-                        durationMs: execution.durationMs,
-                        finishedAt: new Date().toISOString(),
-                    }
-                    : {
-                        ...nodeRun,
-                        status:
-                            runMode === "single" && selectedNodeId && nodeRun.nodeId !== selectedNodeId
-                                ? toNodeRunStatus(
-                                    nodes.find((n) => n.id === nodeRun.nodeId)?.data.runStatus
-                                )
-                                : nodeRun.status,
-                    };
-            });
-
-            const finishedRun: WorkflowRun = {
-                ...run,
-                durationMs: result.durationMs,
-                status: finalizeRunStatus(updatedNodeRuns),
-                finishedAt: new Date().toISOString(),
-                nodeRuns: updatedNodeRuns,
-            };
-
-            set((state) => ({
-                isRunning: false,
-                nodes: mergedNodes,
-                runs: state.runs.map((r) => (r.id === run.id ? finishedRun : r)),
-                selectedRunId: run.id,
-            }));
-
-            await get().persistRun(finishedRun);
+            await get().pollTriggerRun(
+                triggerRunId,
+                run,
+                nodes,
+                runMode,
+                selectedNodeId
+            );
         } catch (error) {
             console.error(error);
+
+            const message =
+                error instanceof Error ? error.message : "Execution failed";
 
             const failedNodeRuns = run.nodeRuns.map((nodeRun) => ({
                 ...nodeRun,
                 status: "failed" as const,
-                error: "Execution failed",
+                error: message,
                 finishedAt: new Date().toISOString(),
             }));
 
@@ -572,19 +762,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
             set((state) => ({
                 isRunning: false,
+                currentTriggerRunId: null,
                 nodes: state.nodes.map((node) => ({
                     ...node,
                     data: {
                         ...node.data,
                         runStatus: "failed" as const,
-                        error: "Execution failed",
+                        error: message,
                     },
                 })),
                 runs: state.runs.map((r) => (r.id === run.id ? failedRun : r)),
                 selectedRunId: run.id,
             }));
 
-            await get().persistRun(failedRun);
+            get().clearActiveTriggerRun();
         }
     },
 
@@ -642,6 +833,52 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             console.error(error);
             set({ isSaving: false });
         }
+    },
+
+    saveActiveTriggerRun: (triggerRunId) => {
+        if (typeof window === "undefined") return;
+
+        if (!triggerRunId) {
+            window.localStorage.removeItem(ACTIVE_TRIGGER_RUN_KEY);
+            return;
+        }
+
+        const { workflowId } = get();
+
+        window.localStorage.setItem(
+            ACTIVE_TRIGGER_RUN_KEY,
+            JSON.stringify({
+                workflowId,
+                triggerRunId,
+            })
+        );
+    },
+
+    loadActiveTriggerRun: () => {
+        if (typeof window === "undefined") return null;
+
+        const raw = window.localStorage.getItem(ACTIVE_TRIGGER_RUN_KEY);
+        if (!raw) return null;
+
+        try {
+            const parsed = JSON.parse(raw) as {
+                workflowId?: string | null;
+                triggerRunId?: string | null;
+            };
+
+            const { workflowId } = get();
+
+            if (parsed.workflowId !== workflowId) return null;
+
+            return parsed.triggerRunId ?? null;
+        } catch {
+            return null;
+        }
+    },
+
+    clearActiveTriggerRun: () => {
+        if (typeof window === "undefined") return;
+        window.localStorage.removeItem(ACTIVE_TRIGGER_RUN_KEY);
     },
 
     saveToLocalStorage: () => {

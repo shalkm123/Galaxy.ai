@@ -11,6 +11,8 @@ export function ExtractFrameNode({ data }: NodeProps<ExtractFrameFlowNode>) {
                 data.runStatus
             )}`}
         >
+
+
             <div className="node-drag-handle flex cursor-grab items-center justify-between px-4 pt-3 text-[12px] text-white/55 active:cursor-grabbing">
                 <span>{data.label || "Extract Frame"}</span>
                 <span>{data.runStatus === "running" ? "Running..." : "Image"}</span>

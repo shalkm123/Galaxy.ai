@@ -22,7 +22,7 @@ export function LlmNode({ data }: NodeProps<LlmFlowNode>) {
             <div className="px-4 pb-4 pt-3">
                 <div className="mb-2 text-[12px] text-white/55">Model</div>
                 <button className="nodrag nopan w-full rounded-[10px] bg-[#11151b] px-3 py-2 text-left text-sm text-white">
-                    {data.model || "gemini-2.5-flash"}
+                    {data.model || "gemini-1.5-flash"}
                 </button>
 
                 <div className="mt-3 text-[12px] text-white/55">
@@ -33,11 +33,10 @@ export function LlmNode({ data }: NodeProps<LlmFlowNode>) {
                     disabled={!!data.systemPromptConnected}
                     onChange={(e) => data.onSystemPromptChange?.(e.target.value)}
                     placeholder="Enter system prompt..."
-                    className={`nodrag nopan mt-2 min-h-[72px] w-full resize-none rounded-[10px] p-3 text-sm outline-none placeholder:text-white/35 ${
-                        data.systemPromptConnected
-                            ? "bg-[#10141a] text-white/35"
-                            : "bg-[#14181f] text-white"
-                    }`}
+                    className={`nodrag nopan mt-2 min-h-[72px] w-full resize-none rounded-[10px] p-3 text-sm outline-none placeholder:text-white/35 ${data.systemPromptConnected
+                        ? "bg-[#10141a] text-white/35"
+                        : "bg-[#14181f] text-white"
+                        }`}
                 />
 
                 <div className="mt-3 text-[12px] text-white/55">
@@ -48,11 +47,10 @@ export function LlmNode({ data }: NodeProps<LlmFlowNode>) {
                     disabled={!!data.userMessageConnected}
                     onChange={(e) => data.onUserMessageChange?.(e.target.value)}
                     placeholder="Enter user message..."
-                    className={`nodrag nopan mt-2 min-h-[90px] w-full resize-none rounded-[10px] p-3 text-sm outline-none placeholder:text-white/35 ${
-                        data.userMessageConnected
-                            ? "bg-[#10141a] text-white/35"
-                            : "bg-[#14181f] text-white"
-                    }`}
+                    className={`nodrag nopan mt-2 min-h-[90px] w-full resize-none rounded-[10px] p-3 text-sm outline-none placeholder:text-white/35 ${data.userMessageConnected
+                        ? "bg-[#10141a] text-white/35"
+                        : "bg-[#14181f] text-white"
+                        }`}
                 />
 
                 <div className="mt-3 text-[12px] text-white/55">

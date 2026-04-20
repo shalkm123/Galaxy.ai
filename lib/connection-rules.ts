@@ -9,17 +9,15 @@ type HandleType =
     | "resolution";
 
 const handleTypeMap: Record<string, HandleType> = {
-    // text outputs
     "text-output": "text",
     "prompt-output": "text",
 
-    // generic text inputs
+    content: "text",
     prompt: "text",
     system_prompt: "text",
     user_message: "text",
     raw: "text",
 
-    // image inputs / outputs
     "image-output": "image",
     image: "image",
     image_url: "image",
@@ -27,11 +25,9 @@ const handleTypeMap: Record<string, HandleType> = {
     styleImage: "image",
     images: "image",
 
-    // video inputs / outputs
     "video-output": "video",
     video_url: "video",
 
-    // style / params
     style: "style",
     seed: "seed",
     aspectRatio: "aspectRatio",
