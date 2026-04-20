@@ -5,16 +5,23 @@ const globalForPrisma = globalThis as unknown as {
     prisma: PrismaClient | undefined;
 };
 
-const adapter = new PrismaPg({
-    connectionString: process.env.DATABASE_URL,
-});
+function getPrismaClient() {
+    const connectionString = process.env.DATABASE_URL;
 
-export const prisma =
-    globalForPrisma.prisma ??
-    new PrismaClient({
+    if (!connectionString) {
+        throw new Error("DATABASE_URL environment variable is not set");
+    }
+
+    const adapter = new PrismaPg({ connectionString });
+
+    return new PrismaClient({
         adapter,
         log: ["error"],
     });
+}
+
+export const prisma =
+    globalForPrisma.prisma ?? getPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = prisma;
