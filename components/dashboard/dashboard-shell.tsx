@@ -22,7 +22,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
             <div className="relative flex-1">
                 <div className="absolute right-5 top-5 z-20">
                     <UserButton
-                        afterSignOutUrl="/login"
+
                         appearance={{
                             elements: {
                                 avatarBox: "h-9 w-9",
