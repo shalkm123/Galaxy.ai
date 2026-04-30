@@ -2,10 +2,10 @@
 
 import { useEffect } from "react";
 import { useParams } from "next/navigation";
-import { EditorBottombar } from "@/components/editor/editor-bottom-toolbar";
+
+//import { EditorBottombar } from "@/components/editor/editor-bottom-toolbar";
 import { WorkflowCanvas } from "@/components/editor/workflow-canvas";
 import { EditorShell } from "@/components/editor/editor-shell";
-import { EditorTopbar } from "@/components/editor/editor-topbar";
 import { RunWorkflowButton } from "@/components/editor/nodes/run-workflow-button";
 import { useEditorStore } from "@/store/editor-store";
 
@@ -27,7 +27,7 @@ export default function EditorWorkflowPage() {
     return (
         <EditorShell>
             <div
-                className="flex h-full w-full overflow-hidden"
+                className="relative flex h-full w-full overflow-hidden"
                 style={{
                     backgroundColor: "#050505",
                     backgroundImage:
@@ -35,24 +35,21 @@ export default function EditorWorkflowPage() {
                     backgroundSize: "26px 26px",
                 }}
             >
-                <div className="relative flex-1 overflow-hidden">
-                    <EditorTopbar />
-
-                    {isLoadingWorkflow ? (
-                        <div className="absolute inset-0 flex items-center justify-center text-white/60">
-                            Loading workflow...
+                {isLoadingWorkflow ? (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 text-white/60">
+                        Loading workflow...
+                    </div>
+                ) : (
+                    <>
+                        {/* Run button now starts below the topbar because EditorShell handles topbar separately */}
+                        <div className="absolute right-6 top-5 z-20">
+                            <RunWorkflowButton />
                         </div>
-                    ) : (
-                        <>
-                            <div className="absolute right-6 top-20 z-20">
-                                <RunWorkflowButton />
-                            </div>
 
-                            <WorkflowCanvas />
-                            <EditorBottombar />
-                        </>
-                    )}
-                </div>
+                        <WorkflowCanvas />
+                        {/* <EditorBottombar /> */}
+                    </>
+                )}
             </div>
         </EditorShell>
     );

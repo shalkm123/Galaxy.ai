@@ -4,6 +4,11 @@ import type {
     ExecutionResponse,
 } from "@/types/execution";
 import { runGeminiText } from "@/lib/gemini-executor";
+import { withTimeout } from "@/lib/with-timeout";
+import {
+    WORKFLOW_NODE_TIMEOUT_MS,
+    WORKFLOW_TIMEOUT_ERROR,
+} from "@/lib/workflow-timeout";
 
 function getNodeById(nodes: AppFlowNode[], nodeId: string) {
     return nodes.find((node) => node.id === nodeId);
@@ -170,6 +175,43 @@ function getInternalHeaders(internalExecutionKey: string) {
     };
 }
 
+async function fetchApiJsonWithTimeout<T>(
+    url: string,
+    options: RequestInit,
+    timeoutMs = WORKFLOW_NODE_TIMEOUT_MS
+): Promise<{
+    response: Response;
+    result: T;
+}> {
+    const controller = new AbortController();
+
+    const timer = setTimeout(() => {
+        controller.abort();
+    }, timeoutMs);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+        });
+
+        const result = (await response.json()) as T;
+
+        return {
+            response,
+            result,
+        };
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            throw new Error(WORKFLOW_TIMEOUT_ERROR);
+        }
+
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function executePromptNode(
     node: AppFlowNode,
     nodes: AppFlowNode[],
@@ -226,12 +268,16 @@ async function executeLlmNode(
 
     const imageUrls = resolveInputValues(node.id, "images", nodes, edges);
 
-    const output = await runGeminiText({
-        model: node.data.model,
-        systemPrompt,
-        userMessage,
-        imageUrls,
-    });
+    const output = await withTimeout(
+        runGeminiText({
+            model: node.data.model,
+            systemPrompt,
+            userMessage,
+            imageUrls,
+        }),
+        WORKFLOW_NODE_TIMEOUT_MS,
+        WORKFLOW_TIMEOUT_ERROR
+    );
 
     return {
         systemPrompt,
@@ -254,7 +300,10 @@ async function executeCropImageNode(
         node.data.imageUrl ||
         "";
 
-    const response = await fetch(`${baseUrl}/api/media/crop-image`, {
+    const { response, result } = await fetchApiJsonWithTimeout<{
+        imageUrl?: string;
+        message?: string;
+    }>(`${baseUrl}/api/media/crop-image`, {
         method: "POST",
         headers: getInternalHeaders(internalExecutionKey),
         body: JSON.stringify({
@@ -265,11 +314,6 @@ async function executeCropImageNode(
             heightPercent: node.data.heightPercent ?? "100",
         }),
     });
-
-    const result = (await response.json()) as {
-        imageUrl?: string;
-        message?: string;
-    };
 
     if (!response.ok) {
         throw new Error(result.message || "Crop image failed");
@@ -294,7 +338,10 @@ async function executeExtractFrameNode(
         node.data.videoUrl ||
         "";
 
-    const response = await fetch(`${baseUrl}/api/media/extract-frame`, {
+    const { response, result } = await fetchApiJsonWithTimeout<{
+        imageUrl?: string;
+        message?: string;
+    }>(`${baseUrl}/api/media/extract-frame`, {
         method: "POST",
         headers: getInternalHeaders(internalExecutionKey),
         body: JSON.stringify({
@@ -302,11 +349,6 @@ async function executeExtractFrameNode(
             timestamp: node.data.timestamp ?? "0",
         }),
     });
-
-    const result = (await response.json()) as {
-        imageUrl?: string;
-        message?: string;
-    };
 
     if (!response.ok) {
         throw new Error(result.message || "Extract frame failed");
@@ -332,7 +374,10 @@ async function executeImageGeneratorNode(
         node.data.prompt ||
         "";
 
-    const response = await fetch(`${baseUrl}/api/media/generate-image`, {
+    const { response, result } = await fetchApiJsonWithTimeout<{
+        imageUrl?: string;
+        message?: string;
+    }>(`${baseUrl}/api/media/generate-image`, {
         method: "POST",
         headers: getInternalHeaders(internalExecutionKey),
         body: JSON.stringify({
@@ -340,11 +385,6 @@ async function executeImageGeneratorNode(
             model: node.data.model,
         }),
     });
-
-    const result = (await response.json()) as {
-        imageUrl?: string;
-        message?: string;
-    };
 
     if (!response.ok) {
         throw new Error(result.message || "Image generation failed");
@@ -436,6 +476,7 @@ export async function executeWorkflowGraph(
         incomingMap.get(edge.target)?.push(edge.source);
         outgoingMap.get(edge.source)?.push(edge.target);
     }
+
     const orderedNodes = topologicalSort(executionNodes, executionEdges);
 
     const updatedNodes: AppFlowNode[] = nodes.map((node) => ({
@@ -468,7 +509,8 @@ export async function executeWorkflowGraph(
             (node) =>
                 !completed.has(node.id) &&
                 !running.has(node.id) &&
-                isReady(node.id)
+                isReady(node.id) &&
+                !hasFailedDependency(node.id)
         );
 
         if (readyNodes.length === 0) {
@@ -546,12 +588,16 @@ export async function executeWorkflowGraph(
                         },
                     };
 
-                    const partial = await executeNode(
-                        updatedNodes[currentNodeIndex],
-                        updatedNodes,
-                        executionEdges,
-                        baseUrl,
-                        internalExecutionKey
+                    const partial = await withTimeout(
+                        executeNode(
+                            updatedNodes[currentNodeIndex],
+                            updatedNodes,
+                            executionEdges,
+                            baseUrl,
+                            internalExecutionKey
+                        ),
+                        WORKFLOW_NODE_TIMEOUT_MS,
+                        WORKFLOW_TIMEOUT_ERROR
                     );
 
                     const nodeFinishedAt = Date.now();

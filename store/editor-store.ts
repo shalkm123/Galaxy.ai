@@ -18,6 +18,12 @@ import type { PersistedWorkflow } from "@/types/persisted-workflow";
 import type { PersistedWorkflowRun } from "@/types/persisted-run";
 import type { ExecutionResponse } from "@/types/execution";
 
+import {
+    WORKFLOW_FRONTEND_TIMEOUT_MS,
+    WORKFLOW_POLL_INTERVAL_MS,
+    WORKFLOW_TIMEOUT_ERROR,
+} from "@/lib/workflow-timeout";
+
 function toNodeRunStatus(status?: NodeRuntimeStatus): NodeRunStatus {
     if (status === "success") return "success";
     if (status === "failed") return "failed";
@@ -30,6 +36,7 @@ export type EditorTemplate =
     | "empty"
     | "image-generator"
     | "marketing-workflow";
+
 export type ExecutionMode = "full" | "single";
 
 const STORAGE_KEY = "galaxy-editor-workflow-v1";
@@ -186,6 +193,61 @@ function cloneHistoryState(
     };
 }
 
+async function fetchJsonWithTimeout<T>(
+    url: string,
+    options: RequestInit = {},
+    timeoutMs = WORKFLOW_FRONTEND_TIMEOUT_MS
+): Promise<{
+    response: Response;
+    data: T | null;
+}> {
+    const controller = new AbortController();
+
+    const timer = window.setTimeout(() => {
+        controller.abort();
+    }, timeoutMs);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+        });
+
+        const data = (await response.json().catch(() => null)) as T | null;
+
+        return {
+            response,
+            data,
+        };
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            throw new Error(WORKFLOW_TIMEOUT_ERROR);
+        }
+
+        throw error;
+    } finally {
+        window.clearTimeout(timer);
+    }
+}
+
+function buildFailedRun(run: WorkflowRun, message: string): WorkflowRun {
+    const now = new Date().toISOString();
+
+    const failedNodeRuns = run.nodeRuns.map((nodeRun) => ({
+        ...nodeRun,
+        status: "failed" as const,
+        error: message,
+        finishedAt: now,
+    }));
+
+    return {
+        ...run,
+        status: finalizeRunStatus(failedNodeRuns),
+        finishedAt: now,
+        nodeRuns: failedNodeRuns,
+    };
+}
+
 export const useEditorStore = create<EditorStore>((set, get) => ({
     template: "templates",
     workflowId: null,
@@ -275,10 +337,29 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                     .catch((error) => {
                         console.error("Failed to resume Trigger.dev polling:", error);
 
-                        set({
+                        const message =
+                            error instanceof Error
+                                ? error.message
+                                : WORKFLOW_TIMEOUT_ERROR;
+
+                        const failedRun = buildFailedRun(resumedRun, message);
+
+                        set((state) => ({
                             isRunning: false,
                             currentTriggerRunId: null,
-                        });
+                            nodes: state.nodes.map((node) => ({
+                                ...node,
+                                data: {
+                                    ...node.data,
+                                    runStatus: "failed" as const,
+                                    error: message,
+                                },
+                            })),
+                            runs: state.runs.map((r) =>
+                                r.id === resumedRun.id ? failedRun : r
+                            ),
+                            selectedRunId: resumedRun.id,
+                        }));
 
                         get().clearActiveTriggerRun();
                     });
@@ -506,10 +587,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         runMode,
         selectedNodeId
     ) => {
-        const pollIntervalMs = 1500;
-        const maxAttempts = 120;
+        const startedAt = Date.now();
 
-        let attempt = 0;
         let finalStatus: string | null = null;
         let finalError: string | null = null;
         let finalOutput:
@@ -521,22 +600,44 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             }
             | null = null;
 
-        while (attempt < maxAttempts) {
-            attempt += 1;
+        while (true) {
+            const elapsed = Date.now() - startedAt;
 
-            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+            if (elapsed > WORKFLOW_FRONTEND_TIMEOUT_MS) {
+                throw new Error(WORKFLOW_TIMEOUT_ERROR);
+            }
 
-            const statusResponse = await fetch(
-                `/api/workflows/trigger-runs/${triggerRunId}`,
-                {
-                    method: "GET",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                }
+            await new Promise((resolve) =>
+                setTimeout(resolve, WORKFLOW_POLL_INTERVAL_MS)
             );
 
-            const statusResult = await statusResponse.json().catch(() => null);
+            const remainingTime = Math.max(
+                WORKFLOW_FRONTEND_TIMEOUT_MS - elapsed,
+                1000
+            );
+
+            const { response: statusResponse, data: statusResult } =
+                await fetchJsonWithTimeout<{
+                    status?: string;
+                    output?: {
+                        result?: ExecutionResponse;
+                        persistedRunId?: string | null;
+                        workflowId?: string | null;
+                        triggerStatus?: string;
+                    };
+                    error?: string;
+                    message?: string;
+                }>(
+                    `/api/workflows/trigger-runs/${triggerRunId}`,
+                    {
+                        method: "GET",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        cache: "no-store",
+                    },
+                    Math.min(10_000, remainingTime)
+                );
 
             if (!statusResponse.ok) {
                 throw new Error(
@@ -551,7 +652,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
                 break;
             }
 
-            if (finalStatus === "failed" || finalStatus === "cancelled") {
+            if (
+                finalStatus === "failed" ||
+                finalStatus === "cancelled" ||
+                finalStatus === "canceled" ||
+                finalStatus === "crashed"
+            ) {
                 finalError =
                     statusResult?.error || `Trigger.dev run ${finalStatus}`;
                 break;
@@ -563,7 +669,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }
 
         if (finalStatus !== "completed") {
-            throw new Error("Execution timed out while waiting for Trigger.dev run");
+            throw new Error(WORKFLOW_TIMEOUT_ERROR);
         }
 
         const executionResult = finalOutput?.result;
@@ -650,7 +756,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
         const finishedRun: WorkflowRun = {
             ...run,
-            durationMs: executionResult.durationMs ?? 0,
+            durationMs: executionResult.durationMs ?? Date.now() - startedAt,
             status: finalizeRunStatus(updatedNodeRuns),
             finishedAt: new Date().toISOString(),
             nodeRuns: updatedNodeRuns,
@@ -703,22 +809,27 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         }));
 
         try {
-            const response = await fetch("/api/workflows/execute", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
+            const { response, data: result } = await fetchJsonWithTimeout<{
+                triggerRunId?: string;
+                message?: string;
+            }>(
+                "/api/workflows/execute",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        workflowId,
+                        template,
+                        nodes,
+                        edges,
+                        mode: runMode ?? "full",
+                        selectedNodeId: selectedNodeId ?? null,
+                    }),
                 },
-                body: JSON.stringify({
-                    workflowId,
-                    template,
-                    nodes,
-                    edges,
-                    mode: runMode ?? "full",
-                    selectedNodeId: selectedNodeId ?? null,
-                }),
-            });
-
-            const result = await response.json().catch(() => null);
+                15_000
+            );
 
             if (!response.ok) {
                 throw new Error(result?.message || "Execution failed");
@@ -744,21 +855,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             console.error(error);
 
             const message =
-                error instanceof Error ? error.message : "Execution failed";
+                error instanceof Error ? error.message : WORKFLOW_TIMEOUT_ERROR;
 
-            const failedNodeRuns = run.nodeRuns.map((nodeRun) => ({
-                ...nodeRun,
-                status: "failed" as const,
-                error: message,
-                finishedAt: new Date().toISOString(),
-            }));
-
-            const failedRun: WorkflowRun = {
-                ...run,
-                status: finalizeRunStatus(failedNodeRuns),
-                finishedAt: new Date().toISOString(),
-                nodeRuns: failedNodeRuns,
-            };
+            const failedRun = buildFailedRun(run, message);
 
             set((state) => ({
                 isRunning: false,

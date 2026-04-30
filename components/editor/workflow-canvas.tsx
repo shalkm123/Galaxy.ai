@@ -17,6 +17,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 
+import {
+    EditorBottombar,
+    type EditorToolMode,
+} from "@/components/editor/editor-bottom-toolbar";
+
 import { PromptNode } from "@/components/editor/nodes/prompt-node";
 import { ImageGeneratorNode } from "@/components/editor/nodes/image-generator-node";
 import { TextNode } from "@/components/editor/nodes/text-node";
@@ -25,7 +30,12 @@ import { UploadVideoNode } from "@/components/editor/nodes/upload-video-node";
 import { LlmNode } from "@/components/editor/nodes/llm-node";
 import { CropImageNode } from "@/components/editor/nodes/crop-image-node";
 import { ExtractFrameNode } from "@/components/editor/nodes/extract-frame-node";
-import { NodePicker } from "@/components/editor/node-picker";
+
+import {
+    NodePicker,
+    NodeSidebar,
+    type AddableNodeType,
+} from "@/components/editor/node-picker";
 
 import {
     getEmptyWorkflow,
@@ -63,16 +73,6 @@ type PickerState = {
     flowY: number;
 } | null;
 
-type AddableNodeType =
-    | "promptNode"
-    | "imageGeneratorNode"
-    | "textNode"
-    | "uploadImageNode"
-    | "uploadVideoNode"
-    | "llmNode"
-    | "cropImageNode"
-    | "extractFrameNode";
-
 type PaneMouseEvent = MouseEvent | React.MouseEvent<Element, MouseEvent>;
 
 function withDragHandle(nodes: AppFlowNode[]): AppFlowNode[] {
@@ -80,6 +80,116 @@ function withDragHandle(nodes: AppFlowNode[]): AppFlowNode[] {
         ...node,
         dragHandle: ".node-drag-handle",
     }));
+}
+
+function buildNewNode(
+    type: AddableNodeType,
+    id: string,
+    position: { x: number; y: number }
+): AppFlowNode {
+    const base = { id, type, position, dragHandle: ".node-drag-handle" };
+
+    switch (type) {
+        case "promptNode":
+            return {
+                ...base,
+                type: "promptNode",
+                data: {
+                    label: "Prompt",
+                    content: "",
+                    runStatus: "idle",
+                },
+            };
+
+        case "textNode":
+            return {
+                ...base,
+                type: "textNode",
+                data: {
+                    label: "Text",
+                    content: "",
+                    runStatus: "idle",
+                },
+            };
+
+        case "uploadImageNode":
+            return {
+                ...base,
+                type: "uploadImageNode",
+                data: {
+                    label: "Upload Image",
+                    imageUrl: "",
+                    runStatus: "idle",
+                },
+            };
+
+        case "uploadVideoNode":
+            return {
+                ...base,
+                type: "uploadVideoNode",
+                data: {
+                    label: "Upload Video",
+                    videoUrl: "",
+                    runStatus: "idle",
+                },
+            };
+
+        case "llmNode":
+            return {
+                ...base,
+                type: "llmNode",
+                data: {
+                    label: "Run Any LLM",
+                    model: "gemini-2.0-flash",
+                    systemPrompt: "",
+                    userMessage: "",
+                    output: "",
+                    runStatus: "idle",
+                },
+            };
+
+        case "cropImageNode":
+            return {
+                ...base,
+                type: "cropImageNode",
+                data: {
+                    label: "Crop Image",
+                    imageUrl: "",
+                    xPercent: "0",
+                    yPercent: "0",
+                    widthPercent: "100",
+                    heightPercent: "100",
+                    runStatus: "idle",
+                },
+            };
+
+        case "extractFrameNode":
+            return {
+                ...base,
+                type: "extractFrameNode",
+                data: {
+                    label: "Extract Frame",
+                    videoUrl: "",
+                    timestamp: "0",
+                    outputImageUrl: "",
+                    runStatus: "idle",
+                },
+            };
+
+        case "imageGeneratorNode":
+        default:
+            return {
+                ...base,
+                type: "imageGeneratorNode",
+                data: {
+                    label: "Krea-1",
+                    model: "Krea1",
+                    prompt: "",
+                    imageUrl: "",
+                    runStatus: "idle",
+                },
+            } as ImageGeneratorFlowNode;
+    }
 }
 
 export function WorkflowCanvas() {
@@ -95,10 +205,11 @@ export function WorkflowCanvas() {
     const setRunMode = useEditorStore((state) => state.setRunMode);
 
     const [picker, setPicker] = useState<PickerState>(null);
+    const [activeTool, setActiveTool] = useState<EditorToolMode>("select");
+    const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
-    const reactFlowRef = useRef<ReactFlowInstance<AppFlowNode, WorkflowEdge> | null>(
-        null
-    );
+    const reactFlowRef =
+        useRef<ReactFlowInstance<AppFlowNode, WorkflowEdge> | null>(null);
     const canvasRef = useRef<HTMLDivElement | null>(null);
     const initializedTemplateRef = useRef<string | null>(null);
 
@@ -110,12 +221,11 @@ export function WorkflowCanvas() {
                         ...node,
                         data: {
                             ...node.data,
-                            onChange: (value: string) => {
+                            onChange: (value: string) =>
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     content: value,
-                                }));
-                            },
+                                })),
                         },
                     };
                 }
@@ -125,12 +235,11 @@ export function WorkflowCanvas() {
                         ...node,
                         data: {
                             ...node.data,
-                            onChange: (value: string) => {
+                            onChange: (value: string) =>
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     content: value,
-                                }));
-                            },
+                                })),
                         },
                     };
                 }
@@ -153,8 +262,8 @@ export function WorkflowCanvas() {
                                     let message = "Image upload failed";
 
                                     try {
-                                        const errorData = await response.json();
-                                        message = errorData.message || message;
+                                        const data = await response.json();
+                                        message = data.message || message;
                                     } catch {
                                         try {
                                             message = await response.text();
@@ -193,8 +302,8 @@ export function WorkflowCanvas() {
                                     let message = "Video upload failed";
 
                                     try {
-                                        const errorData = await response.json();
-                                        message = errorData.message || message;
+                                        const data = await response.json();
+                                        message = data.message || message;
                                     } catch {
                                         try {
                                             message = await response.text();
@@ -220,18 +329,16 @@ export function WorkflowCanvas() {
                         ...node,
                         data: {
                             ...node.data,
-                            onSystemPromptChange: (value: string) => {
+                            onSystemPromptChange: (value: string) =>
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     systemPrompt: value,
-                                }));
-                            },
-                            onUserMessageChange: (value: string) => {
+                                })),
+                            onUserMessageChange: (value: string) =>
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     userMessage: value,
-                                }));
-                            },
+                                })),
                         },
                     };
                 }
@@ -241,12 +348,11 @@ export function WorkflowCanvas() {
                         ...node,
                         data: {
                             ...node.data,
-                            onFieldChange: (field: string, value: string) => {
+                            onFieldChange: (field: string, value: string) =>
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     [field]: value,
-                                }));
-                            },
+                                })),
                         },
                     };
                 }
@@ -256,12 +362,11 @@ export function WorkflowCanvas() {
                         ...node,
                         data: {
                             ...node.data,
-                            onTimestampChange: (value: string) => {
+                            onTimestampChange: (value: string) =>
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     timestamp: value,
-                                }));
-                            },
+                                })),
                         },
                     };
                 }
@@ -271,12 +376,11 @@ export function WorkflowCanvas() {
                         ...node,
                         data: {
                             ...node.data,
-                            onPromptChange: (value: string) => {
+                            onPromptChange: (value: string) =>
                                 updateNodeData(node.id, (data) => ({
                                     ...data,
                                     prompt: value,
-                                }));
-                            },
+                                })),
                         },
                     };
                 }
@@ -313,7 +417,87 @@ export function WorkflowCanvas() {
         const workflow = getEmptyWorkflow();
         setNodes(attachNodeActions(workflow.nodes as AppFlowNode[]));
         setEdges(workflow.edges as WorkflowEdge[]);
-    }, [template, nodes.length, edges.length, setNodes, setEdges, attachNodeActions]);
+    }, [
+        template,
+        nodes.length,
+        edges.length,
+        setNodes,
+        setEdges,
+        attachNodeActions,
+    ]);
+
+    const handleFitView = useCallback(() => {
+        reactFlowRef.current?.fitView({
+            padding: 0.2,
+            duration: 300,
+        });
+    }, []);
+
+    const handleDeleteSelected = useCallback(() => {
+        if (selectedNodeId) {
+            setNodes(nodes.filter((node) => node.id !== selectedNodeId));
+
+            setEdges(
+                edges.filter(
+                    (edge) =>
+                        edge.source !== selectedNodeId &&
+                        edge.target !== selectedNodeId
+                )
+            );
+
+            setSelectedNodeId(null);
+            setSelectedEdgeId(null);
+            setRunMode("full");
+            return;
+        }
+
+        if (selectedEdgeId) {
+            setEdges(edges.filter((edge) => edge.id !== selectedEdgeId));
+            setSelectedEdgeId(null);
+        }
+    }, [
+        selectedNodeId,
+        selectedEdgeId,
+        nodes,
+        edges,
+        setNodes,
+        setEdges,
+        setSelectedNodeId,
+        setRunMode,
+    ]);
+
+    const handleToolChange = useCallback((tool: EditorToolMode) => {
+        setActiveTool(tool);
+    }, []);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            const activeElement = document.activeElement;
+
+            const isTypingInsideInput =
+                activeElement instanceof HTMLInputElement ||
+                activeElement instanceof HTMLTextAreaElement ||
+                activeElement instanceof HTMLSelectElement ||
+                activeElement?.getAttribute("contenteditable") === "true";
+
+            if (isTypingInsideInput) return;
+
+            const isDeleteKey =
+                event.key === "Backspace" || event.key === "Delete";
+
+            if (!isDeleteKey) return;
+            if (!selectedNodeId && !selectedEdgeId) return;
+
+            event.preventDefault();
+            handleDeleteSelected();
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [selectedNodeId, selectedEdgeId, handleDeleteSelected]);
 
     const onNodesChange = useCallback(
         (changes: NodeChange<AppFlowNode>[]) => {
@@ -331,18 +515,14 @@ export function WorkflowCanvas() {
 
     const isValidConnection = useCallback(
         (connection: Connection | WorkflowEdge) => {
-            const source = connection.source;
-            const target = connection.target;
-            const sourceHandle = connection.sourceHandle;
-            const targetHandle = connection.targetHandle;
+            const { source, target, sourceHandle, targetHandle } = connection;
 
-            if (!source || !target) return false;
-            if (!sourceHandle || !targetHandle) return false;
-            if (source === target) return false;
-
-            if (!isConnectionAllowed(sourceHandle, targetHandle)) {
+            if (!source || !target || !sourceHandle || !targetHandle) {
                 return false;
             }
+
+            if (source === target) return false;
+            if (!isConnectionAllowed(sourceHandle, targetHandle)) return false;
 
             const nextEdge: WorkflowEdge = {
                 id: `edge-${source}-${sourceHandle}-${target}-${targetHandle}`,
@@ -352,9 +532,7 @@ export function WorkflowCanvas() {
                 targetHandle,
             };
 
-            if (wouldCreateCycle(nodes, edges, nextEdge)) {
-                return false;
-            }
+            if (wouldCreateCycle(nodes, edges, nextEdge)) return false;
 
             return true;
         },
@@ -363,10 +541,7 @@ export function WorkflowCanvas() {
 
     const onConnect = useCallback(
         (connection: Connection) => {
-            const source = connection.source;
-            const target = connection.target;
-            const sourceHandle = connection.sourceHandle;
-            const targetHandle = connection.targetHandle;
+            const { source, target, sourceHandle, targetHandle } = connection;
 
             if (!source || !target || !sourceHandle || !targetHandle) return;
 
@@ -377,21 +552,29 @@ export function WorkflowCanvas() {
                 sourceHandle,
                 targetHandle,
                 animated: true,
-                style: { stroke: "#c9a300", strokeWidth: 3 },
+                style: {
+                    stroke: "#c9a300",
+                    strokeWidth: 3,
+                },
             };
 
             if (!isValidConnection(nextEdge)) return;
 
             setEdges(addEdge(nextEdge, edges) as WorkflowEdge[]);
+            setActiveTool("select");
         },
         [edges, setEdges, isValidConnection]
     );
 
-    const handlePaneClick = useCallback((_event: PaneMouseEvent) => {
-        setPicker(null);
-        setSelectedNodeId(null);
-        setRunMode("full");
-    }, [setSelectedNodeId, setRunMode]);
+    const handlePaneClick = useCallback(
+        (_event: PaneMouseEvent) => {
+            setPicker(null);
+            setSelectedNodeId(null);
+            setSelectedEdgeId(null);
+            setRunMode("full");
+        },
+        [setSelectedNodeId, setRunMode]
+    );
 
     const handlePaneContextMenu = useCallback((event: PaneMouseEvent) => {
         event.preventDefault();
@@ -399,17 +582,14 @@ export function WorkflowCanvas() {
         if (!canvasRef.current || !reactFlowRef.current) return;
 
         const rect = canvasRef.current.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-
         const flowPosition = reactFlowRef.current.screenToFlowPosition({
             x: event.clientX,
             y: event.clientY,
         });
 
         setPicker({
-            x,
-            y,
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
             flowX: flowPosition.x,
             flowY: flowPosition.y,
         });
@@ -435,6 +615,76 @@ export function WorkflowCanvas() {
         });
     }, []);
 
+    const addNodeAtPosition = useCallback(
+        (type: AddableNodeType, flowX: number, flowY: number) => {
+            const id = `${type}-${Date.now()}`;
+            const newNode = buildNewNode(type, id, {
+                x: flowX,
+                y: flowY,
+            });
+
+            setNodes([...nodes, ...attachNodeActions([newNode])]);
+        },
+        [nodes, setNodes, attachNodeActions]
+    );
+
+    const handlePickerSelect = useCallback(
+        (type: AddableNodeType) => {
+            if (!picker) return;
+
+            addNodeAtPosition(type, picker.flowX, picker.flowY);
+            setPicker(null);
+        },
+        [picker, addNodeAtPosition]
+    );
+
+    const handleSidebarAdd = useCallback(
+        (type: AddableNodeType) => {
+            if (!reactFlowRef.current || !canvasRef.current) return;
+
+            const rect = canvasRef.current.getBoundingClientRect();
+
+            const flowPos = reactFlowRef.current.screenToFlowPosition({
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            });
+
+            addNodeAtPosition(
+                type,
+                flowPos.x + (Math.random() - 0.5) * 120,
+                flowPos.y + (Math.random() - 0.5) * 80
+            );
+        },
+        [addNodeAtPosition]
+    );
+
+    const onDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    }, []);
+
+    const onDrop = useCallback(
+        (event: React.DragEvent<HTMLDivElement>) => {
+            event.preventDefault();
+
+            if (!reactFlowRef.current || !canvasRef.current) return;
+
+            const type = event.dataTransfer.getData(
+                "application/reactflow-node-type"
+            ) as AddableNodeType;
+
+            if (!type) return;
+
+            const flowPos = reactFlowRef.current.screenToFlowPosition({
+                x: event.clientX,
+                y: event.clientY,
+            });
+
+            addNodeAtPosition(type, flowPos.x, flowPos.y);
+        },
+        [addNodeAtPosition]
+    );
+
     const derivedNodes: AppFlowNode[] = useMemo(() => {
         const attachedNodes = attachNodeActions(nodes);
 
@@ -446,25 +696,28 @@ export function WorkflowCanvas() {
 
             if (node.type === "promptNode" || node.type === "textNode") {
                 const incoming = edges.find(
-                    (edge) => edge.target === node.id && edge.targetHandle === "content"
+                    (edge) =>
+                        edge.target === node.id &&
+                        edge.targetHandle === "content"
                 );
 
                 const resolvedContent = incoming
                     ? (() => {
-                        const sourceNode = attachedNodes.find(
-                            (candidate) => candidate.id === incoming.source
+                        const src = attachedNodes.find(
+                            (n) => n.id === incoming.source
                         );
-                        if (!sourceNode) return "";
+
+                        if (!src) return "";
 
                         if (
-                            sourceNode.type === "promptNode" ||
-                            sourceNode.type === "textNode"
+                            src.type === "promptNode" ||
+                            src.type === "textNode"
                         ) {
-                            return sourceNode.data.content ?? "";
+                            return src.data.content ?? "";
                         }
 
-                        if (sourceNode.type === "llmNode") {
-                            return sourceNode.data.output ?? "";
+                        if (src.type === "llmNode") {
+                            return src.data.output ?? "";
                         }
 
                         return "";
@@ -484,25 +737,28 @@ export function WorkflowCanvas() {
 
             if (node.type === "imageGeneratorNode") {
                 const promptEdge = edges.find(
-                    (edge) => edge.target === node.id && edge.targetHandle === "prompt"
+                    (edge) =>
+                        edge.target === node.id &&
+                        edge.targetHandle === "prompt"
                 );
 
                 const resolvedPrompt = promptEdge
                     ? (() => {
-                        const sourceNode = attachedNodes.find(
-                            (candidate) => candidate.id === promptEdge.source
+                        const src = attachedNodes.find(
+                            (n) => n.id === promptEdge.source
                         );
-                        if (!sourceNode) return "";
+
+                        if (!src) return "";
 
                         if (
-                            sourceNode.type === "promptNode" ||
-                            sourceNode.type === "textNode"
+                            src.type === "promptNode" ||
+                            src.type === "textNode"
                         ) {
-                            return sourceNode.data.content ?? "";
+                            return src.data.content ?? "";
                         }
 
-                        if (sourceNode.type === "llmNode") {
-                            return sourceNode.data.output ?? "";
+                        if (src.type === "llmNode") {
+                            return src.data.output ?? "";
                         }
 
                         return "";
@@ -523,33 +779,35 @@ export function WorkflowCanvas() {
             if (node.type === "llmNode") {
                 const systemPromptEdge = edges.find(
                     (edge) =>
-                        edge.target === node.id && edge.targetHandle === "system_prompt"
+                        edge.target === node.id &&
+                        edge.targetHandle === "system_prompt"
                 );
+
                 const userMessageEdge = edges.find(
                     (edge) =>
-                        edge.target === node.id && edge.targetHandle === "user_message"
-                );
-                const imagesEdge = edges.find(
-                    (edge) => edge.target === node.id && edge.targetHandle === "images"
+                        edge.target === node.id &&
+                        edge.targetHandle === "user_message"
                 );
 
-                const resolveTextFromEdge = (edge?: WorkflowEdge) => {
+                const imagesEdge = edges.find(
+                    (edge) =>
+                        edge.target === node.id &&
+                        edge.targetHandle === "images"
+                );
+
+                const resolveText = (edge?: WorkflowEdge) => {
                     if (!edge) return undefined;
 
-                    const sourceNode = attachedNodes.find(
-                        (candidate) => candidate.id === edge.source
-                    );
-                    if (!sourceNode) return "";
+                    const src = attachedNodes.find((n) => n.id === edge.source);
 
-                    if (
-                        sourceNode.type === "promptNode" ||
-                        sourceNode.type === "textNode"
-                    ) {
-                        return sourceNode.data.content ?? "";
+                    if (!src) return "";
+
+                    if (src.type === "promptNode" || src.type === "textNode") {
+                        return src.data.content ?? "";
                     }
 
-                    if (sourceNode.type === "llmNode") {
-                        return sourceNode.data.output ?? "";
+                    if (src.type === "llmNode") {
+                        return src.data.output ?? "";
                     }
 
                     return "";
@@ -560,8 +818,8 @@ export function WorkflowCanvas() {
                     className: selectedClass,
                     data: {
                         ...node.data,
-                        resolvedSystemPrompt: resolveTextFromEdge(systemPromptEdge),
-                        resolvedUserMessage: resolveTextFromEdge(userMessageEdge),
+                        resolvedSystemPrompt: resolveText(systemPromptEdge),
+                        resolvedUserMessage: resolveText(userMessageEdge),
                         systemPromptConnected: Boolean(systemPromptEdge),
                         userMessageConnected: Boolean(userMessageEdge),
                         imagesConnected: Boolean(imagesEdge),
@@ -571,30 +829,33 @@ export function WorkflowCanvas() {
 
             if (node.type === "cropImageNode") {
                 const imageEdge = edges.find(
-                    (edge) => edge.target === node.id && edge.targetHandle === "image_url"
+                    (edge) =>
+                        edge.target === node.id &&
+                        edge.targetHandle === "image_url"
                 );
 
                 const resolvedImageUrl = imageEdge
                     ? (() => {
-                        const sourceNode = attachedNodes.find(
-                            (candidate) => candidate.id === imageEdge.source
+                        const src = attachedNodes.find(
+                            (n) => n.id === imageEdge.source
                         );
-                        if (!sourceNode) return "";
 
-                        if (sourceNode.type === "uploadImageNode") {
-                            return sourceNode.data.imageUrl ?? "";
+                        if (!src) return "";
+
+                        if (src.type === "uploadImageNode") {
+                            return src.data.imageUrl ?? "";
                         }
 
-                        if (sourceNode.type === "imageGeneratorNode") {
-                            return sourceNode.data.imageUrl ?? "";
+                        if (src.type === "imageGeneratorNode") {
+                            return src.data.imageUrl ?? "";
                         }
 
-                        if (sourceNode.type === "extractFrameNode") {
-                            return sourceNode.data.outputImageUrl ?? "";
+                        if (src.type === "extractFrameNode") {
+                            return src.data.outputImageUrl ?? "";
                         }
 
-                        if (sourceNode.type === "cropImageNode") {
-                            return sourceNode.data.imageUrl ?? "";
+                        if (src.type === "cropImageNode") {
+                            return src.data.imageUrl ?? "";
                         }
 
                         return "";
@@ -614,18 +875,21 @@ export function WorkflowCanvas() {
 
             if (node.type === "extractFrameNode") {
                 const videoEdge = edges.find(
-                    (edge) => edge.target === node.id && edge.targetHandle === "video_url"
+                    (edge) =>
+                        edge.target === node.id &&
+                        edge.targetHandle === "video_url"
                 );
 
                 const resolvedVideoUrl = videoEdge
                     ? (() => {
-                        const sourceNode = attachedNodes.find(
-                            (candidate) => candidate.id === videoEdge.source
+                        const src = attachedNodes.find(
+                            (n) => n.id === videoEdge.source
                         );
-                        if (!sourceNode) return "";
 
-                        if (sourceNode.type === "uploadVideoNode") {
-                            return sourceNode.data.videoUrl ?? "";
+                        if (!src) return "";
+
+                        if (src.type === "uploadVideoNode") {
+                            return src.data.videoUrl ?? "";
                         }
 
                         return "";
@@ -650,228 +914,166 @@ export function WorkflowCanvas() {
         });
     }, [nodes, edges, attachNodeActions, selectedNodeId]);
 
-    const handleAddNode = useCallback(
-        (type: AddableNodeType) => {
-            if (!picker) return;
-
-            const id = `${type}-${Date.now()}`;
-            let newNode: AppFlowNode;
-
-            if (type === "promptNode") {
-                newNode = {
-                    id,
-                    type: "promptNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Prompt",
-                        content: "",
-                        runStatus: "idle",
-                    },
-                };
-            } else if (type === "textNode") {
-                newNode = {
-                    id,
-                    type: "textNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Text",
-                        content: "",
-                        runStatus: "idle",
-                    },
-                };
-            } else if (type === "uploadImageNode") {
-                newNode = {
-                    id,
-                    type: "uploadImageNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Upload Image",
-                        imageUrl: "",
-                        runStatus: "idle",
-                    },
-                };
-            } else if (type === "uploadVideoNode") {
-                newNode = {
-                    id,
-                    type: "uploadVideoNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Upload Video",
-                        videoUrl: "",
-                        runStatus: "idle",
-                    },
-                };
-            } else if (type === "llmNode") {
-                newNode = {
-                    id,
-                    type: "llmNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Run Any LLM",
-                        model: "gemini-2.0-flash",
-                        systemPrompt: "",
-                        userMessage: "",
-                        output: "",
-                        runStatus: "idle",
-                    },
-                };
-            } else if (type === "cropImageNode") {
-                newNode = {
-                    id,
-                    type: "cropImageNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Crop Image",
-                        imageUrl: "",
-                        xPercent: "0",
-                        yPercent: "0",
-                        widthPercent: "100",
-                        heightPercent: "100",
-                        runStatus: "idle",
-                    },
-                };
-            } else if (type === "extractFrameNode") {
-                newNode = {
-                    id,
-                    type: "extractFrameNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Extract Frame",
-                        videoUrl: "",
-                        timestamp: "0",
-                        outputImageUrl: "",
-                        runStatus: "idle",
-                    },
-                };
-            } else {
-                newNode = {
-                    id,
-                    type: "imageGeneratorNode",
-                    position: { x: picker.flowX, y: picker.flowY },
-                    dragHandle: ".node-drag-handle",
-                    data: {
-                        label: "Krea-1",
-                        model: "Krea1",
-                        prompt: "",
-                        imageUrl: "",
-                        runStatus: "idle",
-                    },
-                } as ImageGeneratorFlowNode;
-            }
-
-            setNodes([...nodes, ...attachNodeActions([newNode])]);
-            setPicker(null);
-        },
-        [picker, nodes, setNodes, attachNodeActions]
-    );
-
     return (
-        <div ref={canvasRef} className="absolute inset-0">
-            <ReactFlow<AppFlowNode, WorkflowEdge>
-                nodes={derivedNodes}
-                edges={edges}
-                onInit={(instance) => {
-                    reactFlowRef.current = instance;
-                }}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                onPaneClick={handlePaneClick}
-                onPaneContextMenu={handlePaneContextMenu}
-                onNodeClick={(_event, node) => {
-                    setSelectedNodeId(node.id);
-                    setRunMode("single");
-                }}
-                onNodeContextMenu={(event, node) => {
-                    event.preventDefault();
-                    setSelectedNodeId(node.id);
-                    setRunMode("single");
+        <div className="flex h-full w-full overflow-hidden">
+            <NodeSidebar onAdd={handleSidebarAdd} />
 
-
-                    setTimeout(() => {
-                        useEditorStore.getState().runWorkflow();
-                    }, 0);
-                }}
-                isValidConnection={isValidConnection}
-                nodeTypes={nodeTypes}
-                fitView
-                fitViewOptions={{ padding: 0.2 }}
-                proOptions={{ hideAttribution: true }}
-                defaultEdgeOptions={{
-                    animated: true,
-                    style: { stroke: "#c9a300", strokeWidth: 3 },
-                }}
-                nodeDragThreshold={1}
-                panOnDrag={[1, 2]}
-                selectionOnDrag={false}
-                zoomOnScroll
-                zoomOnPinch
-                zoomOnDoubleClick={false}
-                panOnScroll={false}
-                minZoom={0.2}
-                maxZoom={2}
-                nodesDraggable
-                elementsSelectable
+            <div
+                ref={canvasRef}
+                className="relative flex-1 overflow-hidden"
+                onDrop={onDrop}
+                onDragOver={onDragOver}
             >
-                <Background gap={26} size={1} color="rgba(255,255,255,0.08)" />
-                <MiniMap
-                    pannable
-                    zoomable
-                    position="bottom-right"
-                    style={{
-                        width: 180,
-                        height: 120,
-                        backgroundColor: "#0f1115",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: 12,
+                <ReactFlow<AppFlowNode, WorkflowEdge>
+                    nodes={derivedNodes}
+                    edges={edges}
+                    onInit={(instance) => {
+                        reactFlowRef.current = instance;
                     }}
-                    nodeColor={() => "#1e7bff"}
-                />
-                <Controls
-                    position="bottom-right"
-                    style={{
-                        marginBottom: 140,
-                        backgroundColor: "#111",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: 12,
-                    }}
-                />
-            </ReactFlow>
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    onPaneClick={handlePaneClick}
+                    onPaneContextMenu={handlePaneContextMenu}
+                    onNodeClick={(_event, node) => {
+                        if (activeTool === "cut") {
+                            setNodes(nodes.filter((item) => item.id !== node.id));
 
-            {nodes.length === 0 && !picker && template !== "templates" ? (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="pointer-events-auto text-center text-white/55">
-                        <div className="text-4xl font-semibold text-white/75">
-                            Add a node
+                            setEdges(
+                                edges.filter(
+                                    (edge) =>
+                                        edge.source !== node.id &&
+                                        edge.target !== node.id
+                                )
+                            );
+
+                            setSelectedNodeId(null);
+                            setSelectedEdgeId(null);
+                            setActiveTool("select");
+                            setRunMode("full");
+                            return;
+                        }
+
+                        setSelectedNodeId(node.id);
+                        setSelectedEdgeId(null);
+                        setRunMode("single");
+                    }}
+                    onEdgeClick={(_event, edge) => {
+                        if (activeTool === "cut") {
+                            setEdges(edges.filter((item) => item.id !== edge.id));
+                            setSelectedEdgeId(null);
+                            setActiveTool("select");
+                            return;
+                        }
+
+                        setSelectedEdgeId(edge.id);
+                        setSelectedNodeId(null);
+                        setRunMode("full");
+                    }}
+                    onNodeContextMenu={(event, node) => {
+                        event.preventDefault();
+                        setSelectedNodeId(node.id);
+                        setSelectedEdgeId(null);
+                        setRunMode("single");
+                    }}
+                    isValidConnection={isValidConnection}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    fitViewOptions={{ padding: 0.2 }}
+                    proOptions={{ hideAttribution: true }}
+                    defaultEdgeOptions={{
+                        animated: true,
+                        style: {
+                            stroke: "#c9a300",
+                            strokeWidth: 3,
+                        },
+                    }}
+                    nodeDragThreshold={1}
+                    panOnDrag={activeTool === "pan" ? true : [1, 2]}
+                    selectionOnDrag={activeTool === "select"}
+                    nodesDraggable={activeTool !== "pan"}
+                    elementsSelectable={activeTool !== "pan"}
+                    nodesConnectable={activeTool !== "pan"}
+                    zoomOnScroll
+                    zoomOnPinch
+                    zoomOnDoubleClick={false}
+                    panOnScroll={false}
+                    minZoom={0.2}
+                    maxZoom={2}
+                >
+                    <Background
+                        gap={26}
+                        size={1}
+                        color="rgba(255,255,255,0.08)"
+                    />
+
+                    <MiniMap
+                        pannable
+                        zoomable
+                        position="bottom-right"
+                        style={{
+                            width: 180,
+                            height: 120,
+                            backgroundColor: "#0f1115",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            borderRadius: 12,
+                        }}
+                        nodeColor={() => "#1e7bff"}
+                    />
+
+                    <Controls
+                        position="bottom-right"
+                        showZoom={true}
+                        showFitView={true}
+                        showInteractive={true}
+                        className="galaxy-flow-controls"
+                        style={{
+                            marginBottom: 148,
+                        }}
+                    />
+                </ReactFlow>
+
+                {nodes.length === 0 && !picker && template !== "templates" ? (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <div className="pointer-events-auto text-center text-white/55">
+                            <div className="text-4xl font-semibold text-white/75">
+                                Add a node
+                            </div>
+
+                            <div className="mt-4 text-xl">
+                                Drag from the sidebar, right-click, or use the
+                                button below
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={openPickerAtCanvasCenter}
+                                className="mt-6 rounded-xl bg-white/10 px-4 py-3 text-white hover:bg-white/15"
+                            >
+                                Open Node Picker
+                            </button>
                         </div>
-                        <div className="mt-4 text-xl">
-                            Right click, or use the button below
-                        </div>
-                        <button
-                            onClick={openPickerAtCanvasCenter}
-                            className="mt-6 rounded-xl bg-white/10 px-4 py-3 text-white hover:bg-white/15"
-                        >
-                            Open Node Picker
-                        </button>
                     </div>
-                </div>
-            ) : null}
+                ) : null}
 
-            {picker ? (
-                <NodePicker
-                    x={picker.x}
-                    y={picker.y}
-                    onSelect={handleAddNode}
-                    onClose={() => setPicker(null)}
+                {picker ? (
+                    <NodePicker
+                        x={picker.x}
+                        y={picker.y}
+                        onSelect={handlePickerSelect}
+                        onClose={() => setPicker(null)}
+                    />
+                ) : null}
+
+                <EditorBottombar
+                    activeTool={activeTool}
+                    hasSelection={Boolean(selectedNodeId || selectedEdgeId)}
+                    onToolChange={handleToolChange}
+                    onAddNode={openPickerAtCanvasCenter}
+                    onDeleteSelected={handleDeleteSelected}
+                    onFitView={handleFitView}
                 />
-            ) : null}
+            </div>
         </div>
     );
 }

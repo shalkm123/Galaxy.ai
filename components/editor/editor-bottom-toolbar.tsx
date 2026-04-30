@@ -1,8 +1,6 @@
 "use client";
 
 import {
-    Undo2,
-    Redo2,
     Plus,
     MousePointer2,
     Hand,
@@ -10,75 +8,103 @@ import {
     LayoutGrid,
     Link2,
 } from "lucide-react";
-import { useEditorStore } from "@/store/editor-store";
 
-export function EditorBottombar() {
-    const undo = useEditorStore((s) => s.undo);
-    const redo = useEditorStore((s) => s.redo);
-    const history = useEditorStore((s) => s.history);
-    const future = useEditorStore((s) => s.future);
+export type EditorToolMode = "select" | "pan" | "cut" | "link";
 
+type EditorBottombarProps = {
+    activeTool: EditorToolMode;
+    hasSelection: boolean;
+    onToolChange: (tool: EditorToolMode) => void;
+    onAddNode: () => void;
+    onDeleteSelected: () => void;
+    onFitView: () => void;
+};
+
+function getButtonClass(active?: boolean) {
+    return `flex h-9 w-9 items-center justify-center rounded-[10px] transition ${active
+            ? "bg-white/15 text-white"
+            : "text-white/55 hover:bg-white/10 hover:text-white"
+        }`;
+}
+
+export function EditorBottombar({
+    activeTool,
+    hasSelection,
+    onToolChange,
+    onAddNode,
+    onDeleteSelected,
+    onFitView,
+}: EditorBottombarProps) {
     return (
-        <>
-            <div className="absolute bottom-5 left-4 z-20 flex items-center gap-1.5">
-                <button
-                    onClick={undo}
-                    disabled={history.length === 0}
-                    className={`flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-white/10 transition ${history.length === 0
-                            ? "cursor-not-allowed bg-white/5 text-white/25"
-                            : "bg-white/7 text-white/55 hover:bg-white/11 hover:text-white"
-                        }`}
-                >
-                    <Undo2 className="h-3.5 w-3.5" />
-                </button>
+        <div className="absolute bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-[16px] border border-white/10 bg-[#111]/90 px-2 py-2 shadow-2xl backdrop-blur">
+            <button
+                type="button"
+                onClick={onAddNode}
+                className={getButtonClass()}
+                title="Add node"
+            >
+                <Plus className="h-4 w-4" />
+            </button>
 
-                <button
-                    onClick={redo}
-                    disabled={future.length === 0}
-                    className={`flex h-[34px] w-[34px] items-center justify-center rounded-[9px] border border-white/10 transition ${future.length === 0
-                            ? "cursor-not-allowed bg-white/5 text-white/25"
-                            : "bg-white/7 text-white/55 hover:bg-white/11 hover:text-white"
-                        }`}
-                >
-                    <Redo2 className="h-3.5 w-3.5" />
-                </button>
+            <div className="mx-1 h-6 w-px bg-white/10" />
 
-                <button className="flex items-center gap-1.5 rounded-[9px] border border-white/10 bg-white/5 px-2.5 py-1.5 text-[12px] text-white/45 transition hover:text-white/75">
-                    <kbd className="text-[11px]">⌘</kbd> Keyboard shortcuts
-                </button>
-            </div>
+            <button
+                type="button"
+                onClick={() => onToolChange("select")}
+                className={getButtonClass(activeTool === "select")}
+                title="Select tool"
+            >
+                <MousePointer2 className="h-4 w-4" />
+            </button>
 
-            <div className="absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-[13px] border border-white/10 bg-[rgba(20,20,20,0.9)] p-1.5 backdrop-blur-xl">
-                <button
-                    onClick={() => {
-                        window.dispatchEvent(new CustomEvent("editor:add-node"));
-                    }}
-                    className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white/55 transition hover:bg-white/10 hover:text-white"
-                >
-                    <Plus className="h-4 w-4" />
-                </button>
+            <button
+                type="button"
+                onClick={() => onToolChange("pan")}
+                className={getButtonClass(activeTool === "pan")}
+                title="Pan tool"
+            >
+                <Hand className="h-4 w-4" />
+            </button>
 
-                <div className="mx-1 h-5 w-px bg-white/10" />
+            <div className="mx-1 h-6 w-px bg-white/10" />
 
-                <button className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-white/14 text-white transition hover:bg-white/18">
-                    <MousePointer2 className="h-3.5 w-3.5" />
-                </button>
-                <button className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white/55 transition hover:bg-white/10 hover:text-white">
-                    <Hand className="h-3.5 w-3.5" />
-                </button>
+            <button
+                type="button"
+                onClick={() => {
+                    if (hasSelection) {
+                        onDeleteSelected();
+                        return;
+                    }
 
-                <div className="mx-1 h-5 w-px bg-white/10" />
+                    onToolChange("cut");
+                }}
+                className={getButtonClass(activeTool === "cut")}
+                title={
+                    hasSelection
+                        ? "Delete selected node/edge"
+                        : "Cut tool: click a node or edge to delete it"
+                }
+            >
+                <Scissors className="h-4 w-4" />
+            </button>
 
-                <button className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white/55 transition hover:bg-white/10 hover:text-white">
-                    <Scissors className="h-3.5 w-3.5" />
-                </button>
-                <button className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white/55 transition hover:bg-white/10 hover:text-white">
-                    <LayoutGrid className="h-3.5 w-3.5" />
-                </button>
-                <button className="flex h-9 w-9 items-center justify-center rounded-[8px] text-white/55 transition hover:bg-white/10 hover:text-white">
-                    <Link2 className="h-3.5 w-3.5" />
-                </button>
-            </div>
-        </>
+            <button
+                type="button"
+                onClick={onFitView}
+                className={getButtonClass()}
+                title="Fit view"
+            >
+                <LayoutGrid className="h-4 w-4" />
+            </button>
+
+            <button
+                type="button"
+                onClick={() => onToolChange("link")}
+                className={getButtonClass(activeTool === "link")}
+                title="Link mode"
+            >
+                <Link2 className="h-4 w-4" />
+            </button>
+        </div>
     );
 }

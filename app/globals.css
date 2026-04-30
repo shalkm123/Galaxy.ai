@@ -25,3 +25,215 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* ── Node pulsating glow animation ───────────────────────────── */
+@keyframes nodePulseBlue {
+  0% {
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 10px 2px rgba(59, 130, 246, 0.30);
+  }
+
+  50% {
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.85), 0 0 28px 8px rgba(59, 130, 246, 0.60);
+  }
+
+  100% {
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5), 0 0 10px 2px rgba(59, 130, 246, 0.30);
+  }
+}
+
+@keyframes nodePulseAmber {
+  0% {
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4), 0 0 8px 2px rgba(245, 158, 11, 0.18);
+  }
+
+  50% {
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.75), 0 0 20px 6px rgba(245, 158, 11, 0.40);
+  }
+
+  100% {
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4), 0 0 8px 2px rgba(245, 158, 11, 0.18);
+  }
+}
+
+@keyframes node-pulse-running {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(59, 130, 246, 0.55),
+      0 0 14px rgba(59, 130, 246, 0.45),
+      inset 0 0 0 1px rgba(59, 130, 246, 0.35);
+    border-color: rgba(96, 165, 250, 0.8);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 9px rgba(59, 130, 246, 0),
+      0 0 38px rgba(59, 130, 246, 0.95),
+      inset 0 0 0 1px rgba(147, 197, 253, 0.65);
+    border-color: rgba(147, 197, 253, 1);
+    transform: scale(1.012);
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(59, 130, 246, 0),
+      0 0 14px rgba(59, 130, 246, 0.45),
+      inset 0 0 0 1px rgba(59, 130, 246, 0.35);
+    border-color: rgba(96, 165, 250, 0.8);
+    transform: scale(1);
+  }
+}
+
+@keyframes node-pulse-pending {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(234, 179, 8, 0.45),
+      0 0 12px rgba(234, 179, 8, 0.35),
+      inset 0 0 0 1px rgba(234, 179, 8, 0.25);
+    border-color: rgba(234, 179, 8, 0.65);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 8px rgba(234, 179, 8, 0),
+      0 0 30px rgba(234, 179, 8, 0.85),
+      inset 0 0 0 1px rgba(250, 204, 21, 0.55);
+    border-color: rgba(250, 204, 21, 1);
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(234, 179, 8, 0),
+      0 0 12px rgba(234, 179, 8, 0.35),
+      inset 0 0 0 1px rgba(234, 179, 8, 0.25);
+    border-color: rgba(234, 179, 8, 0.65);
+  }
+}
+
+@keyframes node-success-pop {
+  0% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 0 rgba(34, 197, 94, 0.5),
+      0 0 10px rgba(34, 197, 94, 0.3);
+  }
+
+  45% {
+    transform: scale(1.015);
+    box-shadow:
+      0 0 0 8px rgba(34, 197, 94, 0),
+      0 0 30px rgba(34, 197, 94, 0.75);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 1px rgba(34, 197, 94, 0.35),
+      0 0 24px rgba(34, 197, 94, 0.38);
+  }
+}
+
+@keyframes node-failed-shake {
+  0% {
+    transform: translateX(0);
+  }
+
+  20% {
+    transform: translateX(-2px);
+  }
+
+  40% {
+    transform: translateX(2px);
+  }
+
+  60% {
+    transform: translateX(-1px);
+  }
+
+  80% {
+    transform: translateX(1px);
+  }
+
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.node-glow-running {
+  position: relative;
+  animation: node-pulse-running 1.15s ease-in-out infinite;
+  border-color: rgba(96, 165, 250, 0.95) !important;
+  will-change: box-shadow, transform;
+}
+
+.node-glow-pending {
+  position: relative;
+  animation: node-pulse-pending 1.35s ease-in-out infinite;
+  border-color: rgba(250, 204, 21, 0.9) !important;
+  will-change: box-shadow;
+}
+
+.node-glow-success {
+  position: relative;
+  animation: node-success-pop 0.55s ease-out 1;
+  border-color: rgba(34, 197, 94, 0.95) !important;
+  box-shadow:
+    0 0 0 1px rgba(34, 197, 94, 0.35),
+    0 0 24px rgba(34, 197, 94, 0.38);
+}
+
+.node-glow-failed {
+  position: relative;
+  animation: node-failed-shake 0.28s ease-in-out 1;
+  border-color: rgba(239, 68, 68, 0.95) !important;
+  box-shadow:
+    0 0 0 1px rgba(239, 68, 68, 0.4),
+    0 0 26px rgba(239, 68, 68, 0.45);
+}
+
+.node-glow-idle {
+  box-shadow: none;
+}
+
+
+.galaxy-flow-controls button {
+  background: rgba(30, 123, 255, 0.12) !important;
+  border: 1px solid rgba(30, 123, 255, 0.35) !important;
+  color: #8ab9ff !important;
+  fill: #8ab9ff !important;
+}
+
+.galaxy-flow-controls button:hover {
+  background: rgba(30, 123, 255, 0.22) !important;
+  border-color: rgba(30, 123, 255, 0.65) !important;
+  color: rgb(142, 36, 36) !important;
+  fill: white !important;
+}
+
+.node-glow-running {
+  animation: nodePulseBlue 1.4s ease-in-out infinite;
+  border-radius: 12px;
+}
+
+.node-glow-pending {
+  animation: nodePulseAmber 1.8s ease-in-out infinite;
+  border-radius: 12px;
+}
+
+.node-glow-success {
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.55), 0 0 14px 3px rgba(34, 197, 94, 0.28);
+  border-radius: 12px;
+  transition: box-shadow 0.3s ease;
+}
+
+.node-glow-failed {
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.55), 0 0 14px 3px rgba(239, 68, 68, 0.28);
+  border-radius: 12px;
+  transition: box-shadow 0.3s ease;
+}
+
+.node-glow-idle {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  transition: box-shadow 0.3s ease;
+}
