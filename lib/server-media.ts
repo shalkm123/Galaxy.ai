@@ -1,7 +1,8 @@
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import { existsSync } from "fs";
 import { spawn } from "child_process";
 import { writeFile } from "fs/promises";
 import path from "path";
+import importedFfmpegPath from "ffmpeg-static";
 
 export const MAX_VIDEO_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const MAX_IMAGE_UPLOAD_BYTES = 15 * 1024 * 1024;
@@ -18,8 +19,19 @@ export function isInternalExecutionAuthorized(req: Request) {
     return Boolean(expectedKey && providedKey && providedKey === expectedKey);
 }
 
+function getLocalFfmpegStaticPath() {
+    const binaryName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+    return path.join(process.cwd(), "node_modules", "ffmpeg-static", binaryName);
+}
+
 export function getFfmpegPath() {
-    return process.env.FFMPEG_PATH?.trim() || ffmpegInstaller.path || "ffmpeg";
+    const candidates = [
+        process.env.FFMPEG_PATH?.trim(),
+        typeof importedFfmpegPath === "string" ? importedFfmpegPath : "",
+        getLocalFfmpegStaticPath(),
+    ].filter((candidate): candidate is string => Boolean(candidate));
+
+    return candidates.find((candidate) => existsSync(candidate)) || candidates[0] || "ffmpeg";
 }
 
 export function runFfmpeg(args: string[]) {
