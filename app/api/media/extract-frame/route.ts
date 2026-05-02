@@ -4,6 +4,8 @@ import { mkdir } from "fs/promises";
 import path from "path";
 import { spawn } from "child_process";
 
+export const runtime = "nodejs";
+
 function isInternalExecutionAuthorized(req: Request) {
     const providedKey = req.headers.get("x-internal-execution-key");
     const expectedKey = process.env.INTERNAL_EXECUTION_KEY;
@@ -13,22 +15,49 @@ function isInternalExecutionAuthorized(req: Request) {
     );
 }
 
+function getFfmpegPath() {
+    return process.env.FFMPEG_PATH?.trim() || "ffmpeg";
+}
+
 function runFfmpeg(args: string[]) {
     return new Promise<void>((resolve, reject) => {
-        const ffmpegPath =
-            process.env.FFMPEG_PATH ||
-            "C:\\ffmpeg\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe";
+        const ffmpegPath = getFfmpegPath();
+        const stderr: string[] = [];
 
         const child = spawn(ffmpegPath, args, {
-            stdio: "ignore",
+            stdio: ["ignore", "ignore", "pipe"],
             windowsHide: true,
         });
 
-        child.on("error", reject);
+        child.stderr?.on("data", (chunk: Buffer) => {
+            stderr.push(chunk.toString());
+        });
+
+        child.on("error", (error: NodeJS.ErrnoException) => {
+            if (error.code === "ENOENT") {
+                reject(
+                    new Error(
+                        `ffmpeg executable not found at "${ffmpegPath}". Set FFMPEG_PATH to the production ffmpeg binary path, or install ffmpeg on the server PATH.`
+                    )
+                );
+                return;
+            }
+
+            reject(error);
+        });
 
         child.on("close", (code) => {
             if (code === 0) resolve();
-            else reject(new Error(`ffmpeg exited with code ${code}`));
+            else {
+                const details = stderr.join("").trim();
+                reject(
+                    new Error(
+                        details
+                            ? `ffmpeg exited with code ${code}: ${details}`
+                            : `ffmpeg exited with code ${code}`
+                    )
+                );
+            }
         });
     });
 }
