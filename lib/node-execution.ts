@@ -195,7 +195,30 @@ async function fetchApiJsonWithTimeout<T>(
             signal: controller.signal,
         });
 
-        const result = (await response.json()) as T;
+        const contentType = response.headers.get("content-type") ?? "";
+        const text = await response.text();
+
+        if (!contentType.toLowerCase().includes("application/json")) {
+            const finalUrl = response.url && response.url !== url
+                ? ` via ${response.url}`
+                : "";
+            const snippet = text.replace(/\s+/g, " ").trim().slice(0, 180);
+
+            throw new Error(
+                `Expected JSON from ${url}${finalUrl}, received ${response.status} ${response.statusText || "response"}${contentType ? ` (${contentType})` : ""}${snippet ? `: ${snippet}` : ""}`
+            );
+        }
+
+        let result: T;
+
+        try {
+            result = (text ? JSON.parse(text) : {}) as T;
+        } catch {
+            const snippet = text.replace(/\s+/g, " ").trim().slice(0, 180);
+            throw new Error(
+                `Invalid JSON from ${url}: ${snippet || "empty response"}`
+            );
+        }
 
         return {
             response,

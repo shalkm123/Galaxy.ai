@@ -26,7 +26,7 @@ export function ExtractFrameNode({ data }: NodeProps<ExtractFrameFlowNode>) {
                 <div className="mt-4">
                     <div className="mb-1 text-[12px] text-white/55">Timestamp</div>
                     <input
-                        value={data.timestamp || "0"}
+                        value={data.timestamp}
                         onChange={(e) => data.onTimestampChange?.(e.target.value)}
                         className="nodrag nopan w-full rounded-[10px] bg-[#14181f] px-3 py-2 text-sm text-white outline-none"
                     />

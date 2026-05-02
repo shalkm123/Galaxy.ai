@@ -8,6 +8,23 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    if (
+        typeof error === "object" &&
+        error !== null &&
+        "message" in error &&
+        typeof error.message === "string"
+    ) {
+        return error.message;
+    }
+
+    return "Upload failed";
+}
+
 export async function POST(req: Request) {
     try {
         const { userId } = await auth();
@@ -35,14 +52,29 @@ export async function POST(req: Request) {
             return NextResponse.json({ message: "Uploaded file is empty" }, { status: 400 });
         }
 
+        const isImage = file.type.startsWith("image/");
+        const isVideo = file.type.startsWith("video/");
+
+        if (!isImage && !isVideo) {
+            return NextResponse.json(
+                { message: "Only image and video uploads are supported" },
+                { status: 400 }
+            );
+        }
+
+        const resourceType = isVideo ? "video" : "image";
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
 
         const result = await new Promise<{ secure_url: string; public_id: string }>(
             (resolve, reject) => {
                 cloudinary.uploader
-                    .upload_stream({ folder: "galaxy-ai" }, (error, result) => {
-                        if (error || !result) return reject(error);
+                    .upload_stream({ folder: "galaxy-ai", resource_type: resourceType }, (error, result) => {
+                        if (error || !result) {
+                            reject(error ?? new Error("Cloudinary upload failed"));
+                            return;
+                        }
+
                         resolve(result);
                     })
                     .end(buffer);
@@ -54,11 +86,12 @@ export async function POST(req: Request) {
             name: file.name,
             type: file.type,
             size: file.size,
+            resourceType,
         });
     } catch (error) {
         console.error("Upload route failed:", error);
         return NextResponse.json(
-            { message: error instanceof Error ? error.message : "Upload failed" },
+            { message: getErrorMessage(error) },
             { status: 500 }
         );
     }
