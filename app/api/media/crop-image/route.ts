@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import path from "path";
 import sharp from "sharp";
+import { v2 as cloudinary } from "cloudinary";
+
+const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024;
+const ALLOWED_REMOTE_IMAGE_HOST_SUFFIXES = [
+    ".cloudinary.com",
+    ".blob.vercel-storage.com",
+    ".unsplash.com",
+];
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 function isInternalExecutionAuthorized(req: Request) {
     const providedKey = req.headers.get("x-internal-execution-key");
@@ -11,6 +25,107 @@ function isInternalExecutionAuthorized(req: Request) {
     return Boolean(
         expectedKey && providedKey && providedKey === expectedKey
     );
+}
+
+function isHttpUrl(value: string) {
+    return value.startsWith("http://") || value.startsWith("https://");
+}
+
+function assertAllowedRemoteImageUrl(imageUrl: string) {
+    let parsedUrl: URL;
+
+    try {
+        parsedUrl = new URL(imageUrl);
+    } catch {
+        throw new Error("Invalid image URL");
+    }
+
+    if (parsedUrl.protocol !== "https:") {
+        throw new Error("Only HTTPS image URLs are supported");
+    }
+
+    const host = parsedUrl.hostname.toLowerCase();
+    const isAllowedHost = ALLOWED_REMOTE_IMAGE_HOST_SUFFIXES.some((suffix) => {
+        const normalizedSuffix = suffix.toLowerCase();
+        const exactHost = normalizedSuffix.replace(/^\./, "");
+
+        return host === exactHost || host.endsWith(normalizedSuffix);
+    });
+
+    if (!isAllowedHost) {
+        throw new Error("Image URL host is not allowed");
+    }
+}
+
+function resolveLocalImagePath(imageUrl: string) {
+    const publicRoot = path.resolve(process.cwd(), "public");
+    const normalizedImagePath = imageUrl.replace(/^\/+/, "");
+    const inputPath = path.resolve(publicRoot, normalizedImagePath);
+
+    if (inputPath !== publicRoot && !inputPath.startsWith(`${publicRoot}${path.sep}`)) {
+        throw new Error("Invalid local image path");
+    }
+
+    return inputPath;
+}
+
+async function fetchRemoteImageBuffer(imageUrl: string) {
+    assertAllowedRemoteImageUrl(imageUrl);
+
+    const response = await fetch(imageUrl, { cache: "no-store" });
+
+    if (!response.ok) {
+        throw new Error(`Failed to download image. Status: ${response.status}`);
+    }
+
+    const contentType = response.headers.get("content-type");
+
+    if (contentType && !contentType.startsWith("image/")) {
+        throw new Error("Invalid file type. Expected an image file.");
+    }
+
+    const contentLength = Number(response.headers.get("content-length") ?? "0");
+
+    if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error("Image file is too large. Maximum allowed size is 15 MB.");
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    if (buffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error("Image file is too large. Maximum allowed size is 15 MB.");
+    }
+
+    return buffer;
+}
+
+async function getImageBuffer(imageUrl: string) {
+    if (isHttpUrl(imageUrl)) {
+        return fetchRemoteImageBuffer(imageUrl);
+    }
+
+    return readFile(resolveLocalImagePath(imageUrl));
+}
+
+async function uploadImageBufferToCloudinary(buffer: Buffer) {
+    return new Promise<string>((resolve, reject) => {
+        cloudinary.uploader
+            .upload_stream(
+                {
+                    folder: "galaxy-ai/cropped-images",
+                    resource_type: "image",
+                },
+                (error, result) => {
+                    if (error || !result?.secure_url) {
+                        reject(error ?? new Error("Cloudinary upload failed"));
+                        return;
+                    }
+
+                    resolve(result.secure_url);
+                }
+            )
+            .end(buffer);
+    });
 }
 
 export async function POST(req: Request) {
@@ -38,17 +153,8 @@ export async function POST(req: Request) {
         );
     }
 
-    const normalizedImagePath = imageUrl.replace(/^\/+/, "");
-    const inputPath = path.join(process.cwd(), "public", normalizedImagePath);
-
-    const outputDir = path.join(process.cwd(), "public", "generated");
-    await mkdir(outputDir, { recursive: true });
-
-    const outputFileName = `crop-${Date.now()}.png`;
-    const outputPath = path.join(outputDir, outputFileName);
-
     try {
-        const fileBuffer = await readFile(inputPath);
+        const fileBuffer = await getImageBuffer(imageUrl);
         const image = sharp(fileBuffer);
         const metadata = await image.metadata();
 
@@ -101,10 +207,10 @@ export async function POST(req: Request) {
             .png()
             .toBuffer();
 
-        await writeFile(outputPath, cropped);
+        const croppedImageUrl = await uploadImageBufferToCloudinary(cropped);
 
         return NextResponse.json({
-            imageUrl: `/generated/${outputFileName}`,
+            imageUrl: croppedImageUrl,
         });
     } catch (error) {
         return NextResponse.json(

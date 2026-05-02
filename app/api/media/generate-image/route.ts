@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
+import { v2 as cloudinary } from "cloudinary";
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 function isInternalExecutionAuthorized(req: Request) {
     const providedKey = req.headers.get("x-internal-execution-key");
@@ -10,6 +15,27 @@ function isInternalExecutionAuthorized(req: Request) {
     return Boolean(
         expectedKey && providedKey && providedKey === expectedKey
     );
+}
+
+async function uploadImageBufferToCloudinary(buffer: Buffer) {
+    return new Promise<string>((resolve, reject) => {
+        cloudinary.uploader
+            .upload_stream(
+                {
+                    folder: "galaxy-ai/generated-images",
+                    resource_type: "image",
+                },
+                (error, result) => {
+                    if (error || !result?.secure_url) {
+                        reject(error ?? new Error("Cloudinary upload failed"));
+                        return;
+                    }
+
+                    resolve(result.secure_url);
+                }
+            )
+            .end(buffer);
+    });
 }
 
 export async function POST(req: Request) {
@@ -76,17 +102,10 @@ export async function POST(req: Request) {
         }
 
         const buffer = Buffer.from(base64, "base64");
-
-        const outputDir = path.join(process.cwd(), "public", "generated");
-        await mkdir(outputDir, { recursive: true });
-
-        const outputFileName = `generated-${Date.now()}.png`;
-        const outputPath = path.join(outputDir, outputFileName);
-
-        await writeFile(outputPath, buffer);
+        const imageUrl = await uploadImageBufferToCloudinary(buffer);
 
         return NextResponse.json({
-            imageUrl: `/generated/${outputFileName}`,
+            imageUrl,
         });
     } catch (error) {
         return NextResponse.json(

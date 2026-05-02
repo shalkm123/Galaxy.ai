@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { existsSync } from "fs";
-import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import { spawn } from "child_process";
 import importedFfmpegPath from "ffmpeg-static";
+import { v2 as cloudinary } from "cloudinary";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const MAX_VIDEO_SIZE_BYTES = 25 * 1024 * 1024;
 const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv"];
@@ -15,6 +17,12 @@ const ALLOWED_REMOTE_VIDEO_HOST_SUFFIXES = [
     ".cloudinary.com",
     ".blob.vercel-storage.com",
 ];
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 function isInternalExecutionAuthorized(req: Request) {
     const providedKey = req.headers.get("x-internal-execution-key");
@@ -162,6 +170,15 @@ async function downloadRemoteVideoToFile(videoUrl: string, inputPath: string) {
     await writeFile(inputPath, buffer);
 }
 
+async function uploadFrameToCloudinary(filePath: string) {
+    const result = await cloudinary.uploader.upload(filePath, {
+        folder: "galaxy-ai/extracted-frames",
+        resource_type: "image",
+    });
+
+    return result.secure_url;
+}
+
 export async function POST(req: Request) {
     let tempDir = "";
 
@@ -187,22 +204,19 @@ export async function POST(req: Request) {
         );
     }
 
-    const outputDir = path.join(process.cwd(), "public", "generated");
-    await mkdir(outputDir, { recursive: true });
-
-    const outputFileName = `frame-${Date.now()}.jpg`;
-    const outputPath = path.join(outputDir, outputFileName);
-
     try {
+        tempDir = await mkdtemp(path.join(os.tmpdir(), "galaxy-frame-"));
+
         let inputPath: string;
 
         if (isHttpUrl(videoUrl)) {
-            tempDir = await mkdtemp(path.join(os.tmpdir(), "galaxy-frame-"));
             inputPath = path.join(tempDir, `input${getExtensionFromVideoUrl(videoUrl)}`);
             await downloadRemoteVideoToFile(videoUrl, inputPath);
         } else {
             inputPath = resolveLocalVideoPath(videoUrl);
         }
+
+        const outputPath = path.join(tempDir, `frame-${Date.now()}.jpg`);
 
         await runFfmpeg([
             "-y",
@@ -212,11 +226,17 @@ export async function POST(req: Request) {
             inputPath,
             "-frames:v",
             "1",
+            "-update",
+            "1",
+            "-q:v",
+            "2",
             outputPath,
         ]);
 
+        const imageUrl = await uploadFrameToCloudinary(outputPath);
+
         return NextResponse.json({
-            imageUrl: `/generated/${outputFileName}`,
+            imageUrl,
         });
     } catch (error) {
         return NextResponse.json(
