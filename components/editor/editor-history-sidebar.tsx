@@ -44,8 +44,8 @@ export function EditorHistorySidebar() {
                                 key={run.id}
                                 onClick={() => setSelectedRunId(run.id)}
                                 className={`w-full px-3 py-3 text-left text-xs transition ${run.id === selectedRunId
-                                        ? "bg-white/10 text-white"
-                                        : "text-white/60 hover:bg-white/5"
+                                    ? "bg-white/10 text-white"
+                                    : "text-white/60 hover:bg-white/5"
                                     }`}
                             >
                                 <div className={`font-medium ${getStatusColor(run.status)}`}>
@@ -109,7 +109,15 @@ export function EditorHistorySidebar() {
 
                                             {nodeRun.output ? (
                                                 <div className="mt-2 text-xs text-white/50">
-                                                    Output: {nodeRun.output}
+                                                    Output:
+                                                    <a
+                                                        href={nodeRun.output}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-400 hover:underline ml-2"
+                                                    >
+                                                        View Output
+                                                    </a>
                                                 </div>
                                             ) : null}
 
