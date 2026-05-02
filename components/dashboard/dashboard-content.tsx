@@ -102,7 +102,7 @@ export function DashboardContent() {
                             and model into complex automated pipelines.
                         </p>
                         <Link
-                            href="/editor"
+                            href="/editor?new=1"
                             className="mt-7 inline-flex items-center gap-2 rounded-full bg-white px-7 py-3 text-[14px] font-medium text-black"
                         >
                             New Workflow <ArrowRight className="h-4 w-4" />
@@ -147,7 +147,7 @@ export function DashboardContent() {
                     {activeTab === "Projects" ? (
                         <div className="grid grid-cols-4 gap-3">
                             <Link
-                                href="/editor"
+                                href="/editor?new=1"
                                 className="flex h-[200px] cursor-pointer items-center justify-center rounded-2xl bg-white/6 transition hover:bg-white/9"
                             >
                                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[22px] font-light text-black">

@@ -15,8 +15,7 @@ export function EditorTopbar() {
     const setTemplate = useEditorStore((state) => state.setTemplate);
     const setNodes = useEditorStore((state) => state.setNodes);
     const setEdges = useEditorStore((state) => state.setEdges);
-    const clearRuns = useEditorStore((state) => state.clearRuns);
-    const clearSavedWorkflow = useEditorStore((state) => state.clearSavedWorkflow);
+    const startNewWorkflow = useEditorStore((state) => state.startNewWorkflow);
     const setWorkflowId = useEditorStore((state) => state.setWorkflowId);
     const setWorkflowName = useEditorStore((state) => state.setWorkflowName);
     const setSelectedNodeId = useEditorStore((state) => state.setSelectedNodeId);
@@ -24,15 +23,7 @@ export function EditorTopbar() {
     const saveWorkflow = useEditorStore((state) => state.saveWorkflow);
 
     const handleNewWorkflow = () => {
-        clearSavedWorkflow();
-        clearRuns();
-        setNodes([]);
-        setEdges([]);
-        setWorkflowId(null);
-        setWorkflowName("Untitled Workflow");
-        setSelectedNodeId(null);
-        setRunMode("full");
-        setTemplate("templates");
+        startNewWorkflow();
     };
 
     return (

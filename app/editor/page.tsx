@@ -17,6 +17,7 @@ export default function EditorPage() {
     const hasHydrated = useEditorStore((state) => state.hasHydrated);
 
     const setTemplate = useEditorStore((state) => state.setTemplate);
+    const startNewWorkflow = useEditorStore((state) => state.startNewWorkflow);
     const loadFromLocalStorage = useEditorStore(
         (state) => state.loadFromLocalStorage
     );
@@ -29,6 +30,15 @@ export default function EditorPage() {
     );
 
     useEffect(() => {
+        const shouldStartNewWorkflow =
+            typeof window !== "undefined" &&
+            new URLSearchParams(window.location.search).get("new") === "1";
+
+        if (shouldStartNewWorkflow) {
+            startNewWorkflow();
+            return;
+        }
+
         if (hasHydrated) return;
 
         const restored = loadFromLocalStorage();
@@ -38,7 +48,13 @@ export default function EditorPage() {
         }
 
         setHasHydrated(true);
-    }, [hasHydrated, loadFromLocalStorage, setHasHydrated, setTemplate]);
+    }, [
+        hasHydrated,
+        loadFromLocalStorage,
+        setHasHydrated,
+        setTemplate,
+        startNewWorkflow,
+    ]);
 
     useEffect(() => {
         if (!hasHydrated) return;

@@ -12,7 +12,9 @@ type EditorShellProps = {
 };
 
 export function EditorShell({ children }: EditorShellProps) {
-    const [historyCollapsed, setHistoryCollapsed] = useState(false);
+    const [historyCollapsed, setHistoryCollapsed] = useState(true);
+
+    console.log("historyCollapsed", historyCollapsed);
 
     return (
         <div className="flex h-screen w-screen flex-col overflow-hidden bg-black text-white">

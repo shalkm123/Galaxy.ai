@@ -71,6 +71,7 @@ type EditorStore = {
     currentTriggerRunId: string | null;
 
     beginWorkflowLoad: () => void;
+    startNewWorkflow: () => void;
     loadWorkflowById: (workflowId: string) => Promise<void>;
 
     setTemplate: (template: EditorTemplate) => void;
@@ -283,6 +284,32 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
             history: [],
             future: [],
         }),
+
+    startNewWorkflow: () => {
+        if (typeof window !== "undefined") {
+            window.localStorage.removeItem(STORAGE_KEY);
+            window.localStorage.removeItem(ACTIVE_TRIGGER_RUN_KEY);
+        }
+
+        set({
+            template: "templates",
+            workflowId: null,
+            workflowName: "Untitled Workflow",
+            nodes: [],
+            edges: [],
+            runs: [],
+            selectedRunId: null,
+            selectedNodeId: null,
+            runMode: "full",
+            history: [],
+            future: [],
+            isRunning: false,
+            isSaving: false,
+            hasHydrated: true,
+            isLoadingWorkflow: false,
+            currentTriggerRunId: null,
+        });
+    },
 
     loadWorkflowById: async (workflowId) => {
         try {
